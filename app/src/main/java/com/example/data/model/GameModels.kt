@@ -2,6 +2,7 @@ package com.example.data.model
 
 enum class GameEngineType(val label: String) {
   WEB_CANVAS("2D Web Engine"),
+  ARCADE_NATIVE("Arcade Engine"),
   PUZZLE_NATIVE("Puzzle Engine"),
 }
 
@@ -57,10 +58,42 @@ enum class VaultThemePreset(
 
 enum class LibraryFilter(val label: String) {
   ALL("All"),
+  ARCADE("Arcade"),
   PLATFORMER("Platformers"),
   PUZZLE("Puzzles"),
   FAN_FAVOURITE("Fan Fav"),
   LOCKED("Rank Locked"),
+}
+
+enum class FighterStat {
+  ATTACK,
+  HEALTH,
+  SPEED,
+}
+
+data class FighterUpgradeLevels(
+  val attackLevel: Int = 1,
+  val healthLevel: Int = 1,
+  val speedLevel: Int = 1,
+) {
+  fun levelOf(stat: FighterStat): Int =
+    when (stat) {
+      FighterStat.ATTACK -> attackLevel
+      FighterStat.HEALTH -> healthLevel
+      FighterStat.SPEED -> speedLevel
+    }
+
+  fun upgradeCost(stat: FighterStat): Int {
+    val cur = levelOf(stat)
+    return if (cur >= 5) 0 else cur * 40
+  }
+
+  fun withUpgraded(stat: FighterStat): FighterUpgradeLevels =
+    when (stat) {
+      FighterStat.ATTACK -> copy(attackLevel = (attackLevel + 1).coerceAtMost(5))
+      FighterStat.HEALTH -> copy(healthLevel = (healthLevel + 1).coerceAtMost(5))
+      FighterStat.SPEED -> copy(speedLevel = (speedLevel + 1).coerceAtMost(5))
+    }
 }
 
 data class ControlConfig(
@@ -74,4 +107,42 @@ data class VaultPreferences(
   val themePreset: VaultThemePreset = VaultThemePreset.CYBER_MINT,
   val activeProfileId: Long = 1L,
   val controlConfig: ControlConfig = ControlConfig(),
-)
+  val musicEnabled: Boolean = true,
+  val lobbySfxEnabled: Boolean = true,
+  val fighterUpgrades: Map<String, FighterUpgradeLevels> = defaultFighterUpgrades(),
+) {
+  companion object {
+    fun defaultFighterUpgrades(): Map<String, FighterUpgradeLevels> =
+      mapOf(
+        "kai" to FighterUpgradeLevels(),
+        "mira" to FighterUpgradeLevels(),
+        "titan" to FighterUpgradeLevels(),
+      )
+
+    fun parseFighterUpgrades(raw: String?): Map<String, FighterUpgradeLevels> {
+      val base = defaultFighterUpgrades().toMutableMap()
+      if (raw.isNullOrBlank()) return base
+      raw.split(";").forEach { entry ->
+        val parts = entry.split(":")
+        if (parts.size == 2) {
+          val id = parts[0]
+          val nums = parts[1].split(",").mapNotNull { it.toIntOrNull() }
+          if (nums.size == 3 && id in base) {
+            base[id] =
+              FighterUpgradeLevels(
+                attackLevel = nums[0].coerceIn(1, 5),
+                healthLevel = nums[1].coerceIn(1, 5),
+                speedLevel = nums[2].coerceIn(1, 5),
+              )
+          }
+        }
+      }
+      return base
+    }
+
+    fun encodeFighterUpgrades(map: Map<String, FighterUpgradeLevels>): String =
+      map.entries.joinToString(";") { (id, lv) ->
+        "$id:${lv.attackLevel},${lv.healthLevel},${lv.speedLevel}"
+      }
+  }
+}

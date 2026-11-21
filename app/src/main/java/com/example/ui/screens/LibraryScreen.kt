@@ -51,6 +51,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.example.audio.VaultAudioEngine
 import com.example.data.local.GameEntryEntity
 import com.example.data.model.LibraryFilter
 import com.example.data.model.PlayerTier
@@ -101,11 +102,11 @@ fun LibraryScreen(
             value = uiState.searchQuery,
             onValueChange = onSearchChanged,
             singleLine = true,
-            placeholder = { Text("Search platformers, chess & puzzles...") },
+            placeholder = { Text("Search arcade, platformers, chess & puzzles...") },
             leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
             trailingIcon = {
               if (uiState.searchQuery.isNotEmpty()) {
-                IconButton(onClick = { onSearchChanged("") }) {
+                IconButton(onClick = { VaultAudioEngine.playLobbyButtonSound(); onSearchChanged("") }) {
                   Icon(Icons.Rounded.Close, contentDescription = "Clear search")
                 }
               }
@@ -118,7 +119,7 @@ fun LibraryScreen(
             items(LibraryFilter.entries) { filter ->
               FilterChip(
                 selected = uiState.selectedFilter == filter,
-                onClick = { onFilterSelected(filter) },
+                onClick = { VaultAudioEngine.playLobbyButtonSound(); onFilterSelected(filter) },
                 label = { Text(filter.label) },
                 modifier = Modifier.testTag("filter_chip_${filter.name.lowercase()}"),
               )
@@ -159,8 +160,9 @@ fun LibraryScreen(
             isLocked = isLocked,
             requiredTier = requiredTier,
             currentXp = xp,
-            onCardClick = { inspectingGame = game },
+            onCardClick = { VaultAudioEngine.playLobbyButtonSound(); inspectingGame = game },
             onQuickLaunch = {
+              VaultAudioEngine.playLobbyButtonSound(accent = !isLocked)
               if (isLocked) inspectingGame = game else onLaunchGame(game)
             },
           )
@@ -238,6 +240,7 @@ fun LibraryScreen(
         } else {
           Button(
             onClick = {
+              VaultAudioEngine.playLobbyButtonSound(accent = true)
               inspectingGame = null
               onLaunchGame(game)
             },

@@ -28,6 +28,9 @@ interface VaultDao {
   @Update
   suspend fun updateProfile(profile: ProfileEntity)
 
+  @Query("UPDATE profiles SET vaultCredits = vaultCredits - :cost WHERE id = :profileId AND vaultCredits >= :cost")
+  suspend fun spendCredits(profileId: Long, cost: Int): Int
+
   @Query("SELECT COUNT(*) FROM profiles")
   suspend fun getProfileCount(): Int
 

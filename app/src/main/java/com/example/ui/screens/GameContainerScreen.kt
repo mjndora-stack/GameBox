@@ -38,18 +38,22 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.example.data.local.GameEntryEntity
+import com.example.data.model.FighterStat
 import com.example.data.model.GameEngineType
 import com.example.ui.engines.ChromaFloodGame
 import com.example.ui.engines.CipherMastermindGame
 import com.example.ui.engines.CrateSokobanGame
 import com.example.ui.engines.EmbeddedWebGameEngine
+import com.example.ui.engines.FlappyBirdGame
 import com.example.ui.engines.FluxCircuitGame
 import com.example.ui.engines.HanoiVaultGame
+import com.example.ui.engines.HillClimbGame
 import com.example.ui.engines.LumenToggleGame
 import com.example.ui.engines.NonoGridGame
 import com.example.ui.engines.Prism2048Game
 import com.example.ui.engines.QueensGridGame
 import com.example.ui.engines.Slide15Game
+import com.example.ui.engines.StreetFighter2DGame
 import com.example.ui.engines.SudokuSixGame
 import com.example.ui.engines.VaultChessGame
 import com.example.ui.engines.VaultSweeperGame
@@ -60,6 +64,7 @@ fun GameContainerScreen(
   game: GameEntryEntity,
   uiState: VaultUiState,
   onAwardProgress: (String, Int, Int?, String?) -> Unit,
+  onUpgradeFighter: (String, FighterStat, Int) -> Unit,
   onFlipHud: () -> Unit,
   onExitGame: () -> Unit,
   modifier: Modifier = Modifier,
@@ -134,6 +139,25 @@ fun GameContainerScreen(
             onSubmitScore = { gId, sc -> onAwardProgress(gId, 0, sc, null) },
             onUnlockAchievement = { achId -> onAwardProgress(game.id, 0, null, achId) },
           )
+        GameEngineType.ARCADE_NATIVE -> {
+          val callback: (Int, Int?, String?) -> Unit = { xp, score, ach ->
+            onAwardProgress(game.id, xp, score, ach)
+          }
+          val leftHanded = uiState.preferences.controlConfig.leftHandedHud
+          when (game.id) {
+            "street_fighter_2d" ->
+              StreetFighter2DGame(
+                vaultCredits = uiState.activeProfile?.vaultCredits ?: 100,
+                fighterUpgrades = uiState.preferences.fighterUpgrades,
+                leftHandedHud = leftHanded,
+                onUpgradeStat = onUpgradeFighter,
+                onAwardXp = callback,
+              )
+            "flappy_bird" -> FlappyBirdGame(onAwardXp = callback)
+            "hill_climb" -> HillClimbGame(leftHandedHud = leftHanded, onAwardXp = callback)
+            else -> FlappyBirdGame(onAwardXp = callback)
+          }
+        }
         GameEngineType.PUZZLE_NATIVE -> {
           val callback: (Int, Int?, String?) -> Unit = { xp, score, ach ->
             onAwardProgress(game.id, xp, score, ach)

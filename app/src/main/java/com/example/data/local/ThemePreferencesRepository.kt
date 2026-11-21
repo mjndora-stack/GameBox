@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.example.data.model.ControlConfig
+import com.example.data.model.FighterStat
 import com.example.data.model.VaultPreferences
 import com.example.data.model.VaultThemePreset
 import kotlinx.coroutines.flow.Flow
@@ -22,6 +23,9 @@ class ThemePreferencesRepository(private val context: Context) {
     val LEFT_HANDED_HUD = booleanPreferencesKey("left_handed_hud")
     val COMPACT_CONTROLS = booleanPreferencesKey("compact_controls")
     val HAPTICS_ENABLED = booleanPreferencesKey("haptics_enabled")
+    val MUSIC_ENABLED = booleanPreferencesKey("music_enabled")
+    val LOBBY_SFX_ENABLED = booleanPreferencesKey("lobby_sfx_enabled")
+    val FIGHTER_UPGRADES = stringPreferencesKey("fighter_upgrades")
     val CREATOR_PIN = stringPreferencesKey("creator_pin")
   }
 
@@ -37,6 +41,9 @@ class ThemePreferencesRepository(private val context: Context) {
             compactControls = prefs[Keys.COMPACT_CONTROLS] ?: false,
             hapticsEnabled = prefs[Keys.HAPTICS_ENABLED] ?: true,
           ),
+        musicEnabled = prefs[Keys.MUSIC_ENABLED] ?: true,
+        lobbySfxEnabled = prefs[Keys.LOBBY_SFX_ENABLED] ?: true,
+        fighterUpgrades = VaultPreferences.parseFighterUpgrades(prefs[Keys.FIGHTER_UPGRADES]),
       )
     }
 
@@ -60,6 +67,29 @@ class ThemePreferencesRepository(private val context: Context) {
 
   suspend fun setActiveProfileId(profileId: Long) {
     context.vaultDataStore.edit { prefs -> prefs[Keys.ACTIVE_PROFILE_ID] = profileId }
+  }
+
+  suspend fun toggleMusicEnabled() {
+    context.vaultDataStore.edit { prefs ->
+      val current = prefs[Keys.MUSIC_ENABLED] ?: true
+      prefs[Keys.MUSIC_ENABLED] = !current
+    }
+  }
+
+  suspend fun toggleLobbySfxEnabled() {
+    context.vaultDataStore.edit { prefs ->
+      val current = prefs[Keys.LOBBY_SFX_ENABLED] ?: true
+      prefs[Keys.LOBBY_SFX_ENABLED] = !current
+    }
+  }
+
+  suspend fun upgradeFighterStat(fighterId: String, stat: FighterStat) {
+    context.vaultDataStore.edit { prefs ->
+      val map = VaultPreferences.parseFighterUpgrades(prefs[Keys.FIGHTER_UPGRADES]).toMutableMap()
+      val current = map[fighterId] ?: return@edit
+      map[fighterId] = current.withUpgraded(stat)
+      prefs[Keys.FIGHTER_UPGRADES] = VaultPreferences.encodeFighterUpgrades(map)
+    }
   }
 
   suspend fun updateControlConfig(transform: (ControlConfig) -> ControlConfig) {

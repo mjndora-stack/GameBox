@@ -2,12 +2,17 @@ package com.example
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import com.example.audio.VaultTrackCatalog
 import com.example.data.local.VaultDatabase
+import com.example.data.model.FighterStat
+import com.example.data.model.FighterUpgradeLevels
 import com.example.data.model.PlayerTier
+import com.example.data.model.VaultPreferences
 import com.example.ui.engines.CHESS_ELO_PRESETS
 import com.example.ui.engines.ChessAiEngine
 import com.example.ui.engines.ChessRules
 import com.example.ui.engines.ChessState
+import com.example.ui.engines.STREET_FIGHTERS
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -41,15 +46,18 @@ class ExampleRobolectricTest {
     assertEquals(PlayerTier.MYTHIC, PlayerTier.fromXp(25000))
 
     val games = VaultDatabase.defaultGames()
-    // 2 kept platformers + 12 distinct puzzle games + Vault Chess = 15 games
-    assertEquals(15, games.size)
-    assertEquals(15, games.map { it.id }.toSet().size)
+    // 2 kept platformers + 3 new arcade (SF2D, Flappy, Hill Climb) + 12 puzzles + Vault Chess = 18 games
+    assertEquals(18, games.size)
+    assertEquals(18, games.map { it.id }.toSet().size)
 
-    // Kept platformers, Neon Hop marked Fan Favourite
+    // Kept platformers, Neon Hop marked Fan Favourite, and new games present
     val neon = games.first { it.id == "neon_hop" }
     assertTrue(neon.isFanFavourite)
     assertTrue(games.any { it.id == "skyline_dash" })
     assertTrue(games.any { it.id == "vault_chess" && it.requiredTier == PlayerTier.HOBBYIST.name })
+    assertTrue(games.any { it.id == "street_fighter_2d" && it.requiredTier == PlayerTier.HOBBYIST.name })
+    assertTrue(games.any { it.id == "flappy_bird" && it.requiredTier == PlayerTier.HOBBYIST.name })
+    assertTrue(games.any { it.id == "hill_climb" && it.requiredTier == PlayerTier.HOBBYIST.name })
 
     // Removed legacy titles
     assertTrue(games.none { it.id in setOf("ash_cipher", "crypt_echoes", "apex_vector", "vice_horizon") })
@@ -58,6 +66,30 @@ class ExampleRobolectricTest {
     val lockedGames = games.filter { it.requiredTier != PlayerTier.HOBBYIST.name }
     assertEquals(4, lockedGames.size)
     assertEquals(4, lockedGames.map { it.requiredTier }.toSet().size)
+  }
+
+  @Test
+  fun `every game and the lobby have distinct soundtrack blueprints`() {
+    val games = VaultDatabase.defaultGames()
+    val lobbyTrack = VaultTrackCatalog.forKey("lobby")
+    assertEquals("lobby", lobbyTrack.id)
+    val gameTracks = games.map { VaultTrackCatalog.forKey(it.id) }
+    assertEquals(games.size, gameTracks.map { it.id }.toSet().size)
+    assertTrue(gameTracks.none { it.id == "lobby" })
+  }
+
+  @Test
+  fun `street fighter has 3 upgradable characters with persisted encoding`() {
+    assertEquals(3, STREET_FIGHTERS.size)
+    val defaults = VaultPreferences.defaultFighterUpgrades()
+    val kaiLv1 = defaults.getValue("kai")
+    assertEquals(40, kaiLv1.upgradeCost(FighterStat.ATTACK))
+    val upgraded = kaiLv1.withUpgraded(FighterStat.ATTACK).withUpgraded(FighterStat.HEALTH)
+    assertEquals(2, upgraded.attackLevel)
+    assertEquals(2, upgraded.healthLevel)
+    val encoded = VaultPreferences.encodeFighterUpgrades(defaults + ("kai" to upgraded))
+    val decoded = VaultPreferences.parseFighterUpgrades(encoded)
+    assertEquals(upgraded, decoded["kai"])
   }
 
   @Test

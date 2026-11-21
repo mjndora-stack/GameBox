@@ -11,6 +11,7 @@ import com.example.data.local.ProfileEntity
 import com.example.data.local.ThemePreferencesRepository
 import com.example.data.local.VaultDatabase
 import com.example.data.model.ControlConfig
+import com.example.data.model.FighterStat
 import com.example.data.model.GameEngineType
 import com.example.data.model.LibraryFilter
 import com.example.data.model.PlayerTier
@@ -119,6 +120,8 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
           val matchesFilter =
             when (controls.filter) {
               LibraryFilter.ALL -> true
+              LibraryFilter.ARCADE ->
+                game.engineType == GameEngineType.ARCADE_NATIVE.name
               LibraryFilter.PLATFORMER ->
                 game.engineType == GameEngineType.WEB_CANVAS.name
               LibraryFilter.PUZZLE ->
@@ -185,6 +188,24 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
 
   fun updateControlConfig(transform: (ControlConfig) -> ControlConfig) {
     viewModelScope.launch { repository.updateControlConfig(transform) }
+  }
+
+  fun toggleMusicEnabled() {
+    viewModelScope.launch { repository.toggleMusicEnabled() }
+  }
+
+  fun toggleLobbySfxEnabled() {
+    viewModelScope.launch { repository.toggleLobbySfxEnabled() }
+  }
+
+  fun upgradeFighterStat(fighterId: String, stat: FighterStat, cost: Int) {
+    val profileId = uiState.value.activeProfile?.id ?: 1L
+    viewModelScope.launch {
+      val ok = repository.upgradeFighterStat(profileId, fighterId, stat, cost)
+      statusBanner.value =
+        if (ok) "Upgraded ${fighterId.uppercase()} ${stat.name.lowercase()}! (-$cost CR)"
+        else "Need $cost CR (or already max level)."
+    }
   }
 
   fun switchProfile(profileId: Long) {

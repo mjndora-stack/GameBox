@@ -40,6 +40,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import com.example.audio.VaultAudioEngine
 import com.example.data.model.PlayerTier
 import com.example.ui.viewmodel.VaultUiState
 
@@ -70,7 +71,7 @@ fun LeaderboardScreen(
           Text("Local Pass-and-Play & Ghosts", style = MaterialTheme.typography.titleLarge)
         }
         OutlinedButton(
-          onClick = { showAddProfileDialog = true },
+          onClick = { VaultAudioEngine.playLobbyButtonSound(); showAddProfileDialog = true },
           modifier = Modifier.testTag("add_traveler_button"),
         ) {
           Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -87,7 +88,7 @@ fun LeaderboardScreen(
           val active = profile.id == uiState.activeProfile?.id
           FilterChip(
             selected = active,
-            onClick = { onSwitchProfile(profile.id) },
+            onClick = { VaultAudioEngine.playLobbyButtonSound(); onSwitchProfile(profile.id) },
             leadingIcon = { Icon(Icons.Rounded.Person, contentDescription = null, modifier = Modifier.size(16.dp)) },
             label = { Text("${profile.name} (${profile.totalXp} XP)") },
             modifier = Modifier.testTag("profile_chip_${profile.id}"),
@@ -102,7 +103,7 @@ fun LeaderboardScreen(
         item {
           FilterChip(
             selected = selectedGameId == "global_xp",
-            onClick = { selectedGameId = "global_xp" },
+            onClick = { VaultAudioEngine.playLobbyButtonSound(); selectedGameId = "global_xp" },
             label = { Text("Global XP") },
             modifier = Modifier.testTag("lb_tab_global"),
           )
@@ -110,7 +111,7 @@ fun LeaderboardScreen(
         items(uiState.games, key = { it.id }) { game ->
           FilterChip(
             selected = selectedGameId == game.id,
-            onClick = { selectedGameId = game.id },
+            onClick = { VaultAudioEngine.playLobbyButtonSound(); selectedGameId = game.id },
             label = { Text(game.title) },
             modifier = Modifier.testTag("lb_tab_${game.id}"),
           )

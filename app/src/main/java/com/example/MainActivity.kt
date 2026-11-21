@@ -51,6 +51,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -60,6 +61,9 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
@@ -68,6 +72,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.example.audio.VaultAudioEngine
 import com.example.ui.screens.AchievementsScreen
 import com.example.ui.screens.GameContainerScreen
 import com.example.ui.screens.LeaderboardScreen
@@ -127,7 +132,32 @@ fun VaultPlayApp(
   val backStackEntry by navController.currentBackStackEntryAsState()
   val currentRoute = backStackEntry?.destination?.route ?: ROUTE_LIBRARY
   val isInsidePlayer = currentRoute.startsWith("player/")
+  val activeGameId = if (isInsidePlayer) backStackEntry?.arguments?.getString("gameId") ?: "neon_hop" else null
   val snackbarHostState = remember { SnackbarHostState() }
+  val lifecycleOwner = LocalLifecycleOwner.current
+
+  DisposableEffect(lifecycleOwner) {
+    val observer = LifecycleEventObserver { _, event ->
+      when (event) {
+        Lifecycle.Event.ON_START -> VaultAudioEngine.onAppForegroundChanged(true)
+        Lifecycle.Event.ON_STOP -> VaultAudioEngine.onAppForegroundChanged(false)
+        else -> Unit
+      }
+    }
+    lifecycleOwner.lifecycle.addObserver(observer)
+    onDispose {
+      lifecycleOwner.lifecycle.removeObserver(observer)
+    }
+  }
+
+  LaunchedEffect(activeGameId, uiState.preferences.musicEnabled, uiState.preferences.lobbySfxEnabled) {
+    VaultAudioEngine.syncSettings(
+      musicOn = uiState.preferences.musicEnabled,
+      lobbySfxOn = uiState.preferences.lobbySfxEnabled,
+      isLobbyScreen = !isInsidePlayer,
+    )
+    VaultAudioEngine.setTrack(activeGameId ?: "lobby")
+  }
 
   LaunchedEffect(uiState.statusBanner) {
     val msg = uiState.statusBanner
@@ -188,7 +218,7 @@ fun VaultPlayApp(
             },
             actions = {
               IconButton(
-                onClick = { viewModel.toggleDarkMode() },
+                onClick = { VaultAudioEngine.playLobbyButtonSound(); viewModel.toggleDarkMode() },
                 modifier = Modifier.testTag("top_theme_toggle"),
               ) {
                 Icon(
@@ -215,6 +245,7 @@ fun VaultPlayApp(
               NavigationBarItem(
                 selected = selected,
                 onClick = {
+                  VaultAudioEngine.playLobbyButtonSound()
                   if (currentRoute != tab.route) {
                     navController.navigate(tab.route) {
                       popUpTo(ROUTE_LIBRARY) { saveState = true }
@@ -252,6 +283,7 @@ fun VaultPlayApp(
               NavigationRailItem(
                 selected = selected,
                 onClick = {
+                  VaultAudioEngine.playLobbyButtonSound()
                   if (currentRoute != tab.route) {
                     navController.navigate(tab.route) {
                       popUpTo(ROUTE_LIBRARY) { saveState = true }
@@ -307,6 +339,8 @@ fun VaultPlayApp(
                   uiState = uiState,
                   onToggleDarkMode = viewModel::toggleDarkMode,
                   onSelectTheme = viewModel::selectThemePreset,
+                  onToggleMusic = viewModel::toggleMusicEnabled,
+                  onToggleLobbySfx = viewModel::toggleLobbySfxEnabled,
                   onUpdateControls = viewModel::updateControlConfig,
                   onUnlockCreator = viewModel::unlockCreatorMode,
                   onLockCreator = viewModel::lockCreatorMode,
@@ -329,6 +363,7 @@ fun VaultPlayApp(
                     game = game,
                     uiState = uiState,
                     onAwardProgress = viewModel::awardGameProgress,
+                    onUpgradeFighter = viewModel::upgradeFighterStat,
                     onFlipHud = {
                       viewModel.updateControlConfig { it.copy(leftHandedHud = !it.leftHandedHud) }
                     },

@@ -53,6 +53,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import com.example.audio.VaultAudioEngine
 import com.example.data.model.ControlConfig
 import com.example.data.model.GameEngineType
 import com.example.data.model.PlayerTier
@@ -66,6 +67,8 @@ fun VaultStudioScreen(
   uiState: VaultUiState,
   onToggleDarkMode: () -> Unit,
   onSelectTheme: (VaultThemePreset) -> Unit,
+  onToggleMusic: () -> Unit,
+  onToggleLobbySfx: () -> Unit,
   onUpdateControls: ((ControlConfig) -> ControlConfig) -> Unit,
   onUnlockCreator: (String) -> Boolean,
   onLockCreator: () -> Unit,
@@ -153,7 +156,7 @@ fun VaultStudioScreen(
             }
             Switch(
               checked = uiState.preferences.isDarkMode,
-              onCheckedChange = { onToggleDarkMode() },
+              onCheckedChange = { VaultAudioEngine.playLobbyButtonSound(); onToggleDarkMode() },
               modifier = Modifier.testTag("settings_dark_switch"),
             )
           }
@@ -169,7 +172,7 @@ fun VaultStudioScreen(
               val selected = uiState.preferences.themePreset == preset
               FilterChip(
                 selected = selected,
-                onClick = { onSelectTheme(preset) },
+                onClick = { VaultAudioEngine.playLobbyButtonSound(); onSelectTheme(preset) },
                 leadingIcon = {
                   if (!unlocked) Icon(Icons.Rounded.Lock, contentDescription = null, modifier = Modifier.size(15.dp))
                 },
@@ -180,6 +183,38 @@ fun VaultStudioScreen(
               )
             }
           }
+        }
+      }
+    }
+
+    // 1.5 Audio & Soundtrack Settings
+    item {
+      Text("AUDIO & SOUNDTRACK", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+      Spacer(Modifier.height(8.dp))
+      Surface(
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+      ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+          ControlSwitchRow(
+            title = "Game & Lobby Music",
+            subtitle = "Unique synthesized soundtrack for Lobby and each game",
+            checked = uiState.preferences.musicEnabled,
+            onToggle = { VaultAudioEngine.playLobbyButtonSound(accent = true); onToggleMusic() },
+            tag = "switch_music",
+          )
+          ControlSwitchRow(
+            title = "Lobby Button Sounds",
+            subtitle = "UI tap sounds strictly in Lobby menus (off inside games)",
+            checked = uiState.preferences.lobbySfxEnabled,
+            onToggle = {
+              val turningOn = !uiState.preferences.lobbySfxEnabled
+              onToggleLobbySfx()
+              if (turningOn) VaultAudioEngine.playLobbyButtonSound(accent = true)
+            },
+            tag = "switch_lobby_sfx",
+          )
         }
       }
     }
@@ -196,23 +231,23 @@ fun VaultStudioScreen(
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
           ControlSwitchRow(
             title = "Left-Handed HUD Layout",
-            subtitle = "Swap D-pad / joystick and action triggers",
+            subtitle = "Swap D-pad / pedals and action triggers",
             checked = uiState.preferences.controlConfig.leftHandedHud,
-            onToggle = { onUpdateControls { it.copy(leftHandedHud = !it.leftHandedHud) } },
+            onToggle = { VaultAudioEngine.playLobbyButtonSound(); onUpdateControls { it.copy(leftHandedHud = !it.leftHandedHud) } },
             tag = "switch_left_handed",
           )
           ControlSwitchRow(
             title = "Compact Controls",
             subtitle = "Optimized button scale for tablets & foldables",
             checked = uiState.preferences.controlConfig.compactControls,
-            onToggle = { onUpdateControls { it.copy(compactControls = !it.compactControls) } },
+            onToggle = { VaultAudioEngine.playLobbyButtonSound(); onUpdateControls { it.copy(compactControls = !it.compactControls) } },
             tag = "switch_compact_controls",
           )
           ControlSwitchRow(
             title = "Tactile Haptics",
             subtitle = "Vibrate feedback on actions & tier promotions",
             checked = uiState.preferences.controlConfig.hapticsEnabled,
-            onToggle = { onUpdateControls { it.copy(hapticsEnabled = !it.hapticsEnabled) } },
+            onToggle = { VaultAudioEngine.playLobbyButtonSound(); onUpdateControls { it.copy(hapticsEnabled = !it.hapticsEnabled) } },
             tag = "switch_haptics",
           )
         }

@@ -239,6 +239,25 @@ private fun PuzzleCoverCanvas(coverKey: String, modifier: Modifier = Modifier) {
         drawCircle(Color(0xFF4CE8C8), h * 0.14f, Offset(w * 0.38f, h * 0.48f))
         drawCircle(Color(0xFFFFC857), h * 0.14f, Offset(w * 0.62f, h * 0.48f))
       }
+      "street_fighter_2d" -> {
+        drawRect(Brush.horizontalGradient(listOf(Color(0xFF280D1B), Color(0xFF0E131E), Color(0xFF0D2136))))
+        drawRoundRect(Color(0xFFFF5C7C), Offset(w * 0.20f, h * 0.28f), Size(w * 0.16f, h * 0.46f), CornerRadius(12f))
+        drawRoundRect(Color(0xFF38BDF8), Offset(w * 0.64f, h * 0.28f), Size(w * 0.16f, h * 0.46f), CornerRadius(12f))
+        drawCircle(Color(0xFFFFC857), h * 0.12f, Offset(w * 0.50f, h * 0.50f))
+      }
+      "flappy_bird" -> {
+        drawRect(Brush.verticalGradient(listOf(Color(0xFF0E2A47), Color(0xFF38BDF8))))
+        drawRect(Color(0xFF16A34A), Offset(w * 0.64f, 0f), Size(w * 0.12f, h * 0.34f))
+        drawRect(Color(0xFF16A34A), Offset(w * 0.64f, h * 0.62f), Size(w * 0.12f, h * 0.38f))
+        drawCircle(Color(0xFFFACC15), h * 0.14f, Offset(w * 0.34f, h * 0.48f))
+      }
+      "hill_climb" -> {
+        drawRect(Brush.verticalGradient(listOf(Color(0xFF141B2D), Color(0xFF334155))))
+        drawRect(Color(0xFF22C55E), Offset(0f, h * 0.68f), Size(w, h * 0.32f))
+        drawRoundRect(Color(0xFFFF5C7C), Offset(w * 0.32f, h * 0.48f), Size(w * 0.28f, h * 0.14f), CornerRadius(10f))
+        drawCircle(Color(0xFF0F172A), h * 0.10f, Offset(w * 0.37f, h * 0.66f))
+        drawCircle(Color(0xFF0F172A), h * 0.10f, Offset(w * 0.55f, h * 0.66f))
+      }
       else -> { // queens_grid
         drawRect(Color(0xFF141118))
         for (r in 0..3) for (c in 0..3) {

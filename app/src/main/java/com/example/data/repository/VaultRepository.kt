@@ -12,6 +12,7 @@ import com.example.data.local.ThemePreferencesRepository
 import com.example.data.local.VaultDao
 import com.example.data.local.VaultDatabase
 import com.example.data.model.ControlConfig
+import com.example.data.model.FighterStat
 import com.example.data.model.GameEngineType
 import com.example.data.model.PlayerTier
 import com.example.data.model.VaultPreferences
@@ -92,6 +93,23 @@ class VaultRepository(
   suspend fun setThemePreset(preset: VaultThemePreset) = prefs.setThemePreset(preset)
 
   suspend fun setActiveProfile(profileId: Long) = prefs.setActiveProfileId(profileId)
+
+  suspend fun toggleMusicEnabled() = prefs.toggleMusicEnabled()
+
+  suspend fun toggleLobbySfxEnabled() = prefs.toggleLobbySfxEnabled()
+
+  suspend fun upgradeFighterStat(
+    profileId: Long,
+    fighterId: String,
+    stat: FighterStat,
+    cost: Int,
+  ): Boolean {
+    if (cost <= 0) return false
+    val spent = dao.spendCredits(profileId, cost)
+    if (spent <= 0) return false
+    prefs.upgradeFighterStat(fighterId, stat)
+    return true
+  }
 
   suspend fun updateControlConfig(transform: (ControlConfig) -> ControlConfig) =
     prefs.updateControlConfig(transform)
@@ -239,6 +257,7 @@ class VaultRepository(
     val assetPath =
       when (engineType) {
         GameEngineType.WEB_CANVAS -> "file:///android_asset/games/neon_hop.html"
+        GameEngineType.ARCADE_NATIVE -> "arcade://flappy_bird"
         GameEngineType.PUZZLE_NATIVE -> "puzzle://prism_2048"
       }
     dao.insertGame(
@@ -253,7 +272,12 @@ class VaultRepository(
         sizeLabel = sizeLabel.trim().ifEmpty { "Embedded" },
         assetPath = assetPath,
         customHtmlContent = customHtml,
-        coverKey = if (engineType == GameEngineType.WEB_CANVAS) "neon_hop" else "prism_2048",
+        coverKey =
+          when (engineType) {
+            GameEngineType.WEB_CANVAS -> "neon_hop"
+            GameEngineType.ARCADE_NATIVE -> "street_fighter_2d"
+            GameEngineType.PUZZLE_NATIVE -> "prism_2048"
+          },
         description = description.trim().ifEmpty { "Added via Creator Studio release manager." },
         controlsHint = "Adaptive Touch + Keyboard controls",
         releaseNote = releaseNote.trim().ifEmpty { "GitHub / Itch Vault Drop" },
