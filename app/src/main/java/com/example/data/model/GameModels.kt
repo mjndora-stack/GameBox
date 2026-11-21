@@ -2,10 +2,7 @@ package com.example.data.model
 
 enum class GameEngineType(val label: String) {
   WEB_CANVAS("2D Web Engine"),
-  TEXT_ADVENTURE("Narrative Engine"),
-  DUNGEON_3D("3D Raycast Engine"),
-  RACING_3D("3D Horizon Engine"),
-  VICE_SANDBOX("2.5D Open District"),
+  PUZZLE_NATIVE("Puzzle Engine"),
 }
 
 enum class PlayerTier(
@@ -15,26 +12,21 @@ enum class PlayerTier(
   val subtitle: String,
 ) {
   HOBBYIST(0, "Hobbyist", 0, "Curated Vault Initiate"),
-  ENTHUSIAST(1, "Enthusiast", 500, "Dedicated Arcade Traveler"),
-  EXPERT(2, "Expert", 1500, "Master Tactician & Speedrunner"),
-  PRO(3, "Pro", 3000, "Full Vault Clearance · Vice Horizon Unlocked");
+  ENTHUSIAST(1, "Enthusiast", 500, "Unlocks Cipher Mastermind"),
+  EXPERT(2, "Expert", 1500, "Unlocks Sudoku Six"),
+  PRO(3, "Pro", 3000, "Veteran Arcade & Logic Solver"),
+  MASTER(4, "Master", 5000, "Unlocks Crate Pusher"),
+  GRANDMASTER(5, "Grandmaster", 8000, "Elite Tactical Thinker"),
+  VIRTUOSO(6, "Virtuoso", 12000, "Precision Logic Architect"),
+  LEGEND(7, "Legend", 17500, "Unlocks Queens N-Grid"),
+  MYTHIC(8, "Mythic", 25000, "Pinnacle Offline Vault Champion");
 
   fun nextTier(): PlayerTier? =
-    when (this) {
-      HOBBYIST -> ENTHUSIAST
-      ENTHUSIAST -> EXPERT
-      EXPERT -> PRO
-      PRO -> null
-    }
+    entries.getOrNull(levelIndex + 1)
 
   companion object {
     fun fromXp(xp: Int): PlayerTier =
-      when {
-        xp >= PRO.minXp -> PRO
-        xp >= EXPERT.minXp -> EXPERT
-        xp >= ENTHUSIAST.minXp -> ENTHUSIAST
-        else -> HOBBYIST
-      }
+      entries.lastOrNull { xp >= it.minXp } ?: HOBBYIST
 
     fun progressInTier(xp: Int): Float {
       val current = fromXp(xp)
@@ -65,10 +57,10 @@ enum class VaultThemePreset(
 
 enum class LibraryFilter(val label: String) {
   ALL("All"),
-  PLATFORMER_WEB("2D Web"),
-  THREE_D("3D"),
-  STORY("Story"),
-  PRO("Pro"),
+  PLATFORMER("Platformers"),
+  PUZZLE("Puzzles"),
+  FAN_FAVOURITE("Fan Fav"),
+  LOCKED("Rank Locked"),
 }
 
 data class ControlConfig(

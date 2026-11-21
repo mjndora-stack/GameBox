@@ -8,7 +8,6 @@ import com.example.data.local.AchievementEntity
 import com.example.data.local.GameEntryEntity
 import com.example.data.local.LeaderboardEntryEntity
 import com.example.data.local.ProfileEntity
-import com.example.data.local.TextAdventureSaveEntity
 import com.example.data.local.ThemePreferencesRepository
 import com.example.data.local.VaultDao
 import com.example.data.local.VaultDatabase
@@ -46,16 +45,33 @@ class VaultRepository(
 
   fun observeProfile(profileId: Long): Flow<ProfileEntity?> = dao.observeProfile(profileId)
 
-  fun observeTextSave(profileId: Long): Flow<TextAdventureSaveEntity?> =
-    dao.observeTextSave(profileId)
-
   suspend fun ensureSeeded() {
-    if (dao.getAllGamesOnce().isEmpty()) {
-      dao.insertGames(VaultDatabase.defaultGames())
-    }
+    val defaultGames = VaultDatabase.defaultGames()
+    val existingById = dao.getAllGamesOnce().associateBy { it.id }
+    dao.deleteRemovedCuratedGames(defaultGames.map { it.id })
+    // Preserve player high scores/play counts while syncing curated catalog metadata
+    val synced =
+      defaultGames.map { def ->
+        val old = existingById[def.id]
+        if (old != null) {
+          def.copy(
+            highScore = old.highScore,
+            playCount = old.playCount,
+            lastPlayedAt = old.lastPlayedAt,
+          )
+        } else {
+          def
+        }
+      }
+    dao.insertGames(synced)
+
     dao.insertAchievementsIfMissing(VaultDatabase.defaultAchievements())
-    if (dao.getAllLeaderboardOnce().isEmpty()) {
-      dao.insertLeaderboardEntries(VaultDatabase.defaultGhostRivals())
+    val existingGhostGames =
+      dao.getAllLeaderboardOnce().filter { it.isGhostRival }.map { it.gameId }.toSet()
+    val missingGhosts =
+      VaultDatabase.defaultGhostRivals().filter { it.gameId !in existingGhostGames }
+    if (missingGhosts.isNotEmpty()) {
+      dao.insertLeaderboardEntries(missingGhosts)
     }
     if (dao.getProfileCount() == 0) {
       val id =
@@ -80,8 +96,6 @@ class VaultRepository(
   suspend fun updateControlConfig(transform: (ControlConfig) -> ControlConfig) =
     prefs.updateControlConfig(transform)
 
-  suspend fun setCreatorPin(pin: String) = prefs.setCreatorPin(pin)
-
   suspend fun createProfile(name: String, avatarIcon: String): Long {
     val cleanName = name.trim().take(24).ifEmpty { "Traveler" }
     val newId = dao.insertProfile(ProfileEntity(name = cleanName, avatarIcon = avatarIcon))
@@ -93,8 +107,7 @@ class VaultRepository(
     dao.recordGameLaunch(gameId, System.currentTimeMillis())
     val profile = dao.getProfileOnce(profileId) ?: return null
     dao.updateProfile(profile.copy(gamesPlayedCount = profile.gamesPlayedCount + 1))
-    val unlocked = unlockAchievementInternal("first_launch", profileId)
-    return unlocked
+    return unlockAchievementInternal("first_launch", profileId)
   }
 
   suspend fun awardProgress(
@@ -128,18 +141,21 @@ class VaultRepository(
 
     dao.updateProfile(profile.copy(totalXp = newTotalXp, vaultCredits = newCredits))
 
-    // Auto-unlock tier milestone badges
+    // Auto-unlock rank milestone badges
     if (newTotalXp >= PlayerTier.ENTHUSIAST.minXp) {
-      unlockAchievementBadgeOnly("tier_enthusiast")
+      unlockedTitle = unlockedTitle ?: unlockAchievementBadgeOnly("tier_enthusiast")
     }
     if (newTotalXp >= PlayerTier.EXPERT.minXp) {
-      unlockAchievementBadgeOnly("tier_expert")
+      unlockedTitle = unlockedTitle ?: unlockAchievementBadgeOnly("tier_expert")
     }
-    if (newTotalXp >= PlayerTier.PRO.minXp) {
-      val proUnlocked = unlockAchievementBadgeOnly("vice_unlocked")
-      if (unlockedTitle == null && proUnlocked != null) {
-        unlockedTitle = proUnlocked
-      }
+    if (newTotalXp >= PlayerTier.MASTER.minXp) {
+      unlockedTitle = unlockedTitle ?: unlockAchievementBadgeOnly("tier_master")
+    }
+    if (newTotalXp >= PlayerTier.LEGEND.minXp) {
+      unlockedTitle = unlockedTitle ?: unlockAchievementBadgeOnly("tier_legend")
+    }
+    if (newTotalXp >= PlayerTier.MYTHIC.minXp) {
+      unlockedTitle = unlockedTitle ?: unlockAchievementBadgeOnly("tier_mythic")
     }
 
     if (score != null && score > 0) {
@@ -198,10 +214,6 @@ class VaultRepository(
     return if (updated > 0) ach.title else null
   }
 
-  suspend fun saveTextAdventure(save: TextAdventureSaveEntity) {
-    dao.saveTextAdventure(save)
-  }
-
   suspend fun addCreatorGame(
     title: String,
     subtitle: String,
@@ -223,14 +235,11 @@ class VaultRepository(
         "_" +
         (System.currentTimeMillis() % 10000)
     val existingGames = dao.getAllGamesOnce()
-    val maxOrder = existingGames.maxOfOrNull { it.sortOrder } ?: 6
+    val maxOrder = existingGames.maxOfOrNull { it.sortOrder } ?: 14
     val assetPath =
       when (engineType) {
         GameEngineType.WEB_CANVAS -> "file:///android_asset/games/neon_hop.html"
-        GameEngineType.TEXT_ADVENTURE -> "native://ash_cipher"
-        GameEngineType.DUNGEON_3D -> "native://crypt_echoes"
-        GameEngineType.RACING_3D -> "native://apex_vector"
-        GameEngineType.VICE_SANDBOX -> "native://vice_horizon"
+        GameEngineType.PUZZLE_NATIVE -> "puzzle://prism_2048"
       }
     dao.insertGame(
       GameEntryEntity(
@@ -244,14 +253,7 @@ class VaultRepository(
         sizeLabel = sizeLabel.trim().ifEmpty { "Embedded" },
         assetPath = assetPath,
         customHtmlContent = customHtml,
-        coverKey =
-          when (engineType) {
-            GameEngineType.WEB_CANVAS -> "neon_hop"
-            GameEngineType.TEXT_ADVENTURE -> "ash_cipher"
-            GameEngineType.DUNGEON_3D -> "crypt_echoes"
-            GameEngineType.RACING_3D -> "apex_vector"
-            GameEngineType.VICE_SANDBOX -> "vice_horizon"
-          },
+        coverKey = if (engineType == GameEngineType.WEB_CANVAS) "neon_hop" else "prism_2048",
         description = description.trim().ifEmpty { "Added via Creator Studio release manager." },
         controlsHint = "Adaptive Touch + Keyboard controls",
         releaseNote = releaseNote.trim().ifEmpty { "GitHub / Itch Vault Drop" },
@@ -294,7 +296,6 @@ class VaultRepository(
             notes = "Self-contained HTML5 cartridge ready to embed in the offline WebView engine.",
           )
         } else if (fileName.endsWith(".apk", ignoreCase = true)) {
-          // Safely inspect APK manifest metadata ONLY (never dynamically execute external DEX/SO)
           val tempFile = File(context.cacheDir, "inspect_temp.apk")
           FileOutputStream(tempFile).use { it.write(bytes) }
           val pm = context.packageManager
@@ -322,7 +323,7 @@ class VaultRepository(
             engineType = GameEngineType.WEB_CANVAS,
             htmlContent = null,
             notes =
-              "Manifest metadata extracted ($pkgName v$versionName). Android security blocks executing external APK DEX binaries inside another app; bundle this release's WebGL/Native module in your next GitHub/Itch APK build.",
+              "Manifest metadata extracted ($pkgName v$versionName). Android security blocks executing external APK DEX binaries inside another app; bundle this release's HTML5/Native module in your next GitHub/Itch APK build.",
           )
         } else {
           val jsonText = bytes.decodeToString()

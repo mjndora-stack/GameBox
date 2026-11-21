@@ -329,7 +329,6 @@ fun VaultPlayApp(
                     game = game,
                     uiState = uiState,
                     onAwardProgress = viewModel::awardGameProgress,
-                    onSaveTextAdventure = viewModel::saveTextAdventureState,
                     onFlipHud = {
                       viewModel.updateControlConfig { it.copy(leftHandedHud = !it.leftHandedHud) }
                     },

@@ -47,6 +47,9 @@ interface VaultDao {
   @Insert(onConflict = OnConflictStrategy.REPLACE)
   suspend fun insertGame(game: GameEntryEntity)
 
+  @Query("DELETE FROM games WHERE isCreatorAdded = 0 AND id NOT IN (:validIds)")
+  suspend fun deleteRemovedCuratedGames(validIds: List<String>)
+
   @Query("UPDATE games SET playCount = playCount + 1, lastPlayedAt = :timestamp WHERE id = :gameId")
   suspend fun recordGameLaunch(gameId: String, timestamp: Long)
 
@@ -66,9 +69,6 @@ interface VaultDao {
   @Insert(onConflict = OnConflictStrategy.IGNORE)
   suspend fun insertAchievementsIfMissing(items: List<AchievementEntity>)
 
-  @Insert(onConflict = OnConflictStrategy.REPLACE)
-  suspend fun upsertAchievement(item: AchievementEntity)
-
   @Query("SELECT * FROM achievements WHERE id = :id")
   suspend fun getAchievementOnce(id: String): AchievementEntity?
 
@@ -78,9 +78,6 @@ interface VaultDao {
   // Leaderboards
   @Query("SELECT * FROM leaderboard_entries ORDER BY score DESC")
   fun observeAllLeaderboardEntries(): Flow<List<LeaderboardEntryEntity>>
-
-  @Query("SELECT * FROM leaderboard_entries WHERE gameId = :gameId ORDER BY score DESC LIMIT 25")
-  fun observeLeaderboardForGame(gameId: String): Flow<List<LeaderboardEntryEntity>>
 
   @Query("SELECT * FROM leaderboard_entries")
   suspend fun getAllLeaderboardOnce(): List<LeaderboardEntryEntity>
@@ -93,14 +90,4 @@ interface VaultDao {
 
   @Query("SELECT * FROM leaderboard_entries WHERE gameId = :gameId AND playerName = :playerName AND isGhostRival = 0 LIMIT 1")
   suspend fun getPlayerGameLeaderboard(gameId: String, playerName: String): LeaderboardEntryEntity?
-
-  // Text Adventure Save
-  @Query("SELECT * FROM text_adventure_saves WHERE profileId = :profileId")
-  fun observeTextSave(profileId: Long): Flow<TextAdventureSaveEntity?>
-
-  @Query("SELECT * FROM text_adventure_saves WHERE profileId = :profileId")
-  suspend fun getTextSaveOnce(profileId: Long): TextAdventureSaveEntity?
-
-  @Insert(onConflict = OnConflictStrategy.REPLACE)
-  suspend fun saveTextAdventure(save: TextAdventureSaveEntity)
 }

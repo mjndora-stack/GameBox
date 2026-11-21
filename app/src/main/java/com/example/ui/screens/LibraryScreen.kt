@@ -101,7 +101,7 @@ fun LibraryScreen(
             value = uiState.searchQuery,
             onValueChange = onSearchChanged,
             singleLine = true,
-            placeholder = { Text("Search curated offline library...") },
+            placeholder = { Text("Search platformers, chess & puzzles...") },
             leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
             trailingIcon = {
               if (uiState.searchQuery.isNotEmpty()) {
@@ -185,6 +185,8 @@ fun LibraryScreen(
           coverKey = game.coverKey,
           title = game.title,
           isLocked = isLocked,
+          requiredTierLabel = requiredTier.displayName,
+          isFanFavourite = game.isFanFavourite,
           modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(MaterialTheme.shapes.large),
         )
         Row(
@@ -228,7 +230,7 @@ fun LibraryScreen(
             ) {
               Icon(Icons.Rounded.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary)
               Text(
-                "Requires ${requiredTier.displayName} Tier (${requiredTier.minXp} XP). Earn $remaining more XP across other games to unlock!",
+                "Requires ${requiredTier.displayName} Rank (${requiredTier.minXp} XP). Earn $remaining more XP across unlocked games to play!",
                 style = MaterialTheme.typography.bodyMedium,
               )
             }
@@ -277,6 +279,8 @@ private fun GameVaultCard(
           coverKey = game.coverKey,
           title = game.title,
           isLocked = isLocked,
+          requiredTierLabel = requiredTier.displayName,
+          isFanFavourite = game.isFanFavourite,
           modifier = Modifier.fillMaxSize(),
         )
         Surface(
@@ -316,7 +320,6 @@ private fun GameVaultCard(
           }
           Button(
             onClick = onQuickLaunch,
-            enabled = true,
             shape = RoundedCornerShape(999.dp),
             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
             modifier = Modifier.testTag("play_button_${game.id}"),
@@ -324,7 +327,7 @@ private fun GameVaultCard(
             if (isLocked) {
               Icon(Icons.Rounded.Lock, contentDescription = "Locked", modifier = Modifier.size(16.dp))
               Spacer(Modifier.size(4.dp))
-              Text("PRO")
+              Text(requiredTier.displayName)
             } else {
               Icon(Icons.Rounded.PlayArrow, contentDescription = "Play", modifier = Modifier.size(18.dp))
               Spacer(Modifier.size(4.dp))

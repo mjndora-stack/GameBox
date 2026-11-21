@@ -8,7 +8,6 @@ import com.example.data.local.AchievementEntity
 import com.example.data.local.GameEntryEntity
 import com.example.data.local.LeaderboardEntryEntity
 import com.example.data.local.ProfileEntity
-import com.example.data.local.TextAdventureSaveEntity
 import com.example.data.local.ThemePreferencesRepository
 import com.example.data.local.VaultDatabase
 import com.example.data.model.ControlConfig
@@ -41,7 +40,6 @@ data class VaultUiState(
   val searchQuery: String = "",
   val achievements: List<AchievementEntity> = emptyList(),
   val leaderboardEntries: List<LeaderboardEntryEntity> = emptyList(),
-  val textAdventureSave: TextAdventureSaveEntity? = null,
   val creatorUnlocked: Boolean = false,
   val creatorPin: String = "2026",
   val statusBanner: String? = null,
@@ -68,12 +66,6 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
       repository.observeProfile(prefs.activeProfileId)
     }
 
-  @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-  private val textSaveFlow =
-    repository.preferencesFlow.flatMapLatest { prefs ->
-      repository.observeTextSave(prefs.activeProfileId)
-    }
-
   private val libraryControlsFlow =
     combine(
       selectedFilter,
@@ -94,7 +86,6 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
       repository.gamesFlow,
       repository.achievementsFlow,
       repository.leaderboardFlow,
-      textSaveFlow,
       repository.creatorPinFlow,
       libraryControlsFlow,
       inspectedPackage,
@@ -110,10 +101,9 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
       val achievements = values[5] as List<AchievementEntity>
       @Suppress("UNCHECKED_CAST")
       val leaderboard = values[6] as List<LeaderboardEntryEntity>
-      val textSave = values[7] as TextAdventureSaveEntity?
-      val pin = values[8] as String
-      val controls = values[9] as LibraryControlTuple
-      val inspected = values[10] as InspectedPackage?
+      val pin = values[7] as String
+      val controls = values[8] as LibraryControlTuple
+      val inspected = values[9] as InspectedPackage?
 
       val xp = activeProfile?.totalXp ?: 0
       val tier = PlayerTier.fromXp(xp)
@@ -124,19 +114,17 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
           val matchesQuery =
             controls.query.isBlank() ||
               game.title.contains(controls.query, ignoreCase = true) ||
-              game.genre.contains(controls.query, ignoreCase = true)
+              game.genre.contains(controls.query, ignoreCase = true) ||
+              game.subtitle.contains(controls.query, ignoreCase = true)
           val matchesFilter =
             when (controls.filter) {
               LibraryFilter.ALL -> true
-              LibraryFilter.PLATFORMER_WEB ->
+              LibraryFilter.PLATFORMER ->
                 game.engineType == GameEngineType.WEB_CANVAS.name
-              LibraryFilter.THREE_D ->
-                game.engineType == GameEngineType.DUNGEON_3D.name ||
-                  game.engineType == GameEngineType.RACING_3D.name ||
-                  game.engineType == GameEngineType.VICE_SANDBOX.name
-              LibraryFilter.STORY ->
-                game.engineType == GameEngineType.TEXT_ADVENTURE.name
-              LibraryFilter.PRO -> game.requiredTier == PlayerTier.PRO.name
+              LibraryFilter.PUZZLE ->
+                game.engineType == GameEngineType.PUZZLE_NATIVE.name
+              LibraryFilter.FAN_FAVOURITE -> game.isFanFavourite
+              LibraryFilter.LOCKED -> game.requiredTier != PlayerTier.HOBBYIST.name
             }
           matchesQuery && matchesFilter
         }
@@ -154,7 +142,6 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
         searchQuery = controls.query,
         achievements = achievements,
         leaderboardEntries = leaderboard,
-        textAdventureSave = textSave,
         creatorUnlocked = controls.unlocked,
         creatorPin = pin,
         statusBanner = controls.banner,
@@ -192,7 +179,7 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
     if (tier.levelIndex >= preset.requiredTier.levelIndex) {
       viewModelScope.launch { repository.setThemePreset(preset) }
     } else {
-      statusBanner.value = "Reach ${preset.requiredTier.displayName} tier (${preset.requiredTier.minXp} XP) to unlock ${preset.displayName}."
+      statusBanner.value = "Reach ${preset.requiredTier.displayName} rank (${preset.requiredTier.minXp} XP) to unlock ${preset.displayName}."
     }
   }
 
@@ -237,10 +224,6 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
     }
   }
 
-  fun saveTextAdventureState(save: TextAdventureSaveEntity) {
-    viewModelScope.launch { repository.saveTextAdventure(save) }
-  }
-
   fun unlockCreatorMode(enteredPin: String): Boolean {
     val ok = enteredPin.trim() == uiState.value.creatorPin
     creatorUnlocked.value = ok
@@ -250,15 +233,6 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
 
   fun lockCreatorMode() {
     creatorUnlocked.value = false
-  }
-
-  fun updateCreatorPin(newPin: String) {
-    if (newPin.trim().length >= 4) {
-      viewModelScope.launch {
-        repository.setCreatorPin(newPin.trim())
-        statusBanner.value = "Creator PIN updated."
-      }
-    }
   }
 
   fun addCreatorGame(
@@ -300,8 +274,8 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
 
   fun inspectPackageUri(uri: Uri) {
     viewModelScope.launch {
-      val result = repository.inspectLocalPackageFile(uri)
-      result
+      repository
+        .inspectLocalPackageFile(uri)
         .onSuccess { pkg ->
           inspectedPackage.value = pkg
           statusBanner.value = "Inspected package: ${pkg.title} (${pkg.version})"

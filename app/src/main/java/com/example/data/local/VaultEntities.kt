@@ -35,6 +35,7 @@ data class GameEntryEntity(
   val playCount: Int = 0,
   val lastPlayedAt: Long = 0L,
   val sortOrder: Int = 0,
+  val isFanFavourite: Boolean = false,
   val isCreatorAdded: Boolean = false,
 )
 
@@ -58,17 +59,4 @@ data class LeaderboardEntryEntity(
   val tierName: String,
   val isGhostRival: Boolean = false,
   val recordedAt: Long = System.currentTimeMillis(),
-)
-
-@Entity(tableName = "text_adventure_saves")
-data class TextAdventureSaveEntity(
-  @PrimaryKey val profileId: Long,
-  val currentNodeId: String,
-  val hp: Int,
-  val focus: Int,
-  val inventoryCsv: String,
-  val cluesCsv: String,
-  val visitedNodesCsv: String,
-  val endingsCount: Int,
-  val updatedAt: Long = System.currentTimeMillis(),
 )

@@ -38,14 +38,21 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.example.data.local.GameEntryEntity
-import com.example.data.local.TextAdventureSaveEntity
-import com.example.data.model.ControlConfig
 import com.example.data.model.GameEngineType
-import com.example.ui.engines.ApexVectorEngine
-import com.example.ui.engines.AshCipherEngine
-import com.example.ui.engines.CryptOfEchoesEngine
+import com.example.ui.engines.ChromaFloodGame
+import com.example.ui.engines.CipherMastermindGame
+import com.example.ui.engines.CrateSokobanGame
 import com.example.ui.engines.EmbeddedWebGameEngine
-import com.example.ui.engines.ViceHorizonEngine
+import com.example.ui.engines.FluxCircuitGame
+import com.example.ui.engines.HanoiVaultGame
+import com.example.ui.engines.LumenToggleGame
+import com.example.ui.engines.NonoGridGame
+import com.example.ui.engines.Prism2048Game
+import com.example.ui.engines.QueensGridGame
+import com.example.ui.engines.Slide15Game
+import com.example.ui.engines.SudokuSixGame
+import com.example.ui.engines.VaultChessGame
+import com.example.ui.engines.VaultSweeperGame
 import com.example.ui.viewmodel.VaultUiState
 
 @Composable
@@ -53,7 +60,6 @@ fun GameContainerScreen(
   game: GameEntryEntity,
   uiState: VaultUiState,
   onAwardProgress: (String, Int, Int?, String?) -> Unit,
-  onSaveTextAdventure: (TextAdventureSaveEntity) -> Unit,
   onFlipHud: () -> Unit,
   onExitGame: () -> Unit,
   modifier: Modifier = Modifier,
@@ -77,7 +83,6 @@ fun GameContainerScreen(
         .fillMaxSize()
         .windowInsetsPadding(WindowInsets.safeDrawing)
   ) {
-    // Minimalist Embedded Container Bar
     Surface(
       color = MaterialTheme.colorScheme.surface,
       tonalElevation = 2.dp,
@@ -118,7 +123,6 @@ fun GameContainerScreen(
       }
     }
 
-    // Active Game Engine Surface
     Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
       when (engineType) {
         GameEngineType.WEB_CANVAS ->
@@ -130,28 +134,27 @@ fun GameContainerScreen(
             onSubmitScore = { gId, sc -> onAwardProgress(gId, 0, sc, null) },
             onUnlockAchievement = { achId -> onAwardProgress(game.id, 0, null, achId) },
           )
-        GameEngineType.TEXT_ADVENTURE ->
-          AshCipherEngine(
-            profileId = uiState.activeProfile?.id ?: 1L,
-            savedState = uiState.textAdventureSave,
-            onSaveState = onSaveTextAdventure,
-            onAwardXp = { xp, score, ach -> onAwardProgress(game.id, xp, score, ach) },
-          )
-        GameEngineType.DUNGEON_3D ->
-          CryptOfEchoesEngine(
-            controlConfig = uiState.preferences.controlConfig,
-            onAwardXp = { xp, score, ach -> onAwardProgress(game.id, xp, score, ach) },
-          )
-        GameEngineType.RACING_3D ->
-          ApexVectorEngine(
-            controlConfig = uiState.preferences.controlConfig,
-            onAwardXp = { xp, score, ach -> onAwardProgress(game.id, xp, score, ach) },
-          )
-        GameEngineType.VICE_SANDBOX ->
-          ViceHorizonEngine(
-            controlConfig = uiState.preferences.controlConfig,
-            onAwardXp = { xp, score, ach -> onAwardProgress(game.id, xp, score, ach) },
-          )
+        GameEngineType.PUZZLE_NATIVE -> {
+          val callback: (Int, Int?, String?) -> Unit = { xp, score, ach ->
+            onAwardProgress(game.id, xp, score, ach)
+          }
+          when (game.id) {
+            "prism_2048" -> Prism2048Game(onAwardXp = callback)
+            "flux_circuit" -> FluxCircuitGame(onAwardXp = callback)
+            "vault_sweeper" -> VaultSweeperGame(onAwardXp = callback)
+            "lumen_toggle" -> LumenToggleGame(onAwardXp = callback)
+            "chroma_flood" -> ChromaFloodGame(onAwardXp = callback)
+            "nonogrid" -> NonoGridGame(onAwardXp = callback)
+            "slide_15" -> Slide15Game(onAwardXp = callback)
+            "hanoi_vault" -> HanoiVaultGame(onAwardXp = callback)
+            "vault_chess" -> VaultChessGame(currentTier = uiState.currentTier, onAwardXp = callback)
+            "cipher_break" -> CipherMastermindGame(onAwardXp = callback)
+            "sudoku_six" -> SudokuSixGame(onAwardXp = callback)
+            "crate_sokoban" -> CrateSokobanGame(onAwardXp = callback)
+            "queens_grid" -> QueensGridGame(onAwardXp = callback)
+            else -> Prism2048Game(onAwardXp = callback)
+          }
+        }
       }
 
       if (isPaused) {
