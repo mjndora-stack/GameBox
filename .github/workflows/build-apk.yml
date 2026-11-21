@@ -6,12 +6,11 @@ on:
     tags: [ "v*" ]
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 jobs:
   build-apk:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout repository
@@ -23,16 +22,24 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 36.1 & Accept Licenses
+        run: |
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager "platform-tools" "platforms;android-36.1" "build-tools;36.0.0"
+
+      - name: Install Gradle 9.3.1
+        run: |
+          curl -fsSL https://services.gradle.org/distributions/gradle-9.3.1-bin.zip -o /tmp/gradle.zip
+          unzip -q /tmp/gradle.zip -d /tmp
+
       - name: Decode debug keystore
         run: base64 -d debug.keystore.base64 > debug.keystore
 
-      - name: Set up Gradle 9.3.1
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: "9.3.1"
-
       - name: Build Debug APK
-        run: gradle assembleDebug
+        run: /tmp/gradle-9.3.1/bin/gradle assembleDebug --no-daemon --stacktrace
 
       - name: Copy APK with clean filename
         run: cp app/build/outputs/apk/debug/app-debug.apk VaultPlay-debug.apk
