@@ -17,18 +17,22 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android SDK 36.1 & Accept Licenses
+      - name: Accept Android SDK Licenses & Prepare SDK
         run: |
-          yes | sdkmanager --licenses > /dev/null || true
-          sdkmanager "platform-tools" "platforms;android-36.1" "build-tools;36.0.0"
+          SDK_DIR="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          SDK_MGR="$SDK_DIR/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDK_MGR" ]; then
+            SDK_MGR="$(command -v sdkmanager)"
+          fi
+          mkdir -p "$SDK_DIR/licenses"
+          yes | "$SDK_MGR" --licenses > /dev/null || true
+          "$SDK_MGR" "platform-tools" "platforms;android-36" "build-tools;36.0.0" || true
+          "$SDK_MGR" "platforms;android-36.1" || true
 
       - name: Install Gradle 9.3.1
         run: |
