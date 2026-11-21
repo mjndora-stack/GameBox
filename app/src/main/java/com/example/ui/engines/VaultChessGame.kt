@@ -1,6 +1,9 @@
 package com.example.ui.engines
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -47,13 +50,23 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import com.example.audio.GameSfx
+import com.example.audio.VaultAudioEngine
 import com.example.data.model.PlayerTier
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 @Composable
@@ -102,21 +115,28 @@ fun VaultChessGame(
       else "Your turn (White) · Bot set to $elo Elo"
   }
 
-  // Handle Game Over Rewards
+  // Handle Game Over Sounds & Rewards
   LaunchedEffect(gameStatus, friendMode) {
     if (gameStatus != ChessGameStatus.IN_PROGRESS && !rewardPaidForGame) {
       rewardPaidForGame = true
       if (friendMode) {
         when (gameStatus) {
           ChessGameStatus.WHITE_WINS_CHECKMATE -> {
+            VaultAudioEngine.playGameSfx(GameSfx.CHECKMATE)
+            delay(380L)
+            VaultAudioEngine.playGameSfx(GameSfx.VICTORY)
             statusText = "CHECKMATE! White wins the 2P Friend match! (+90 XP)"
             onAwardXp(90, 450, null)
           }
           ChessGameStatus.BLACK_WINS_CHECKMATE -> {
+            VaultAudioEngine.playGameSfx(GameSfx.CHECKMATE)
+            delay(380L)
+            VaultAudioEngine.playGameSfx(GameSfx.VICTORY)
             statusText = "CHECKMATE! Black wins the 2P Friend match! (+90 XP)"
             onAwardXp(90, 450, null)
           }
           else -> {
+            VaultAudioEngine.playGameSfx(GameSfx.CHECK)
             statusText = "2P Match Draw! (+50 XP)"
             onAwardXp(50, 220, null)
           }
@@ -124,6 +144,9 @@ fun VaultChessGame(
       } else {
         when (gameStatus) {
           ChessGameStatus.WHITE_WINS_CHECKMATE -> {
+            VaultAudioEngine.playGameSfx(GameSfx.CHECKMATE)
+            delay(380L)
+            VaultAudioEngine.playGameSfx(GameSfx.VICTORY)
             val xp = 120 + (selectedElo / 2)
             val score = 500 + selectedElo * 2
             val ach = if (selectedElo >= 800) "chess_800_super" else "chess_100_win"
@@ -131,10 +154,12 @@ fun VaultChessGame(
             onAwardXp(xp, score, ach)
           }
           ChessGameStatus.BLACK_WINS_CHECKMATE -> {
+            VaultAudioEngine.playGameSfx(GameSfx.CHECKMATE)
             statusText = "Checkmate — $selectedElo Elo Bot wins. (+25 XP for practice)"
             onAwardXp(25, 100, null)
           }
           else -> {
+            VaultAudioEngine.playGameSfx(GameSfx.CHECK)
             statusText = "Draw! (+50 XP)"
             onAwardXp(50, 250 + selectedElo / 2, null)
           }
@@ -155,7 +180,11 @@ fun VaultChessGame(
       if (botMove != null) {
         val next = ChessRules.applyMove(chessState, botMove)
         chessState = next
+        val nextStatus = ChessRules.evaluateStatus(next)
         val inCheck = ChessRules.isInCheck(next, ChessColor.WHITE)
+        if (nextStatus == ChessGameStatus.IN_PROGRESS) {
+          VaultAudioEngine.playGameSfx(if (inCheck) GameSfx.CHECK else GameSfx.CHESS_MOVE)
+        }
         statusText =
           if (inCheck) "Check! Your turn (White)" else "Your turn (White) · $selectedElo Elo"
       }
@@ -200,7 +229,6 @@ fun VaultChessGame(
     }
 
     if (!friendMode) {
-      // Elo Selector Strip (100 - 1000 Elo, 100 unlocked at start, 200-700 lower ranks, 800+ super ranks)
       Surface(
         shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.surface,
@@ -305,6 +333,7 @@ fun VaultChessGame(
               val prev = history.removeAt(history.lastIndex)
               chessState = prev
               selectedSquare = null
+              VaultAudioEngine.playGameSfx(GameSfx.CHESS_MOVE)
               val sideLabel = if (prev.turn == ChessColor.WHITE) "White" else "Black"
               statusText = if (friendMode) "Move undone · $sideLabel to move" else "Move undone · Your turn"
             }
@@ -344,6 +373,7 @@ fun VaultChessGame(
               val isDark = (r + c) % 2 == 1
               val isSel = selectedSquare == (r to c)
               val targetMove = highlightedTargets[r to c]
+              val isLandingSquare = chessState.lastMove?.let { it.toRow == r && it.toCol == c } == true
               val isLast =
                 chessState.lastMove?.let {
                   (it.fromRow == r && it.fromCol == c) || (it.toRow == r && it.toCol == c)
@@ -380,10 +410,14 @@ fun VaultChessGame(
                         val next = ChessRules.applyMove(chessState, targetMove)
                         chessState = next
                         selectedSquare = null
-                        if (friendMode && ChessRules.evaluateStatus(next) == ChessGameStatus.IN_PROGRESS) {
+                        val nextStatus = ChessRules.evaluateStatus(next)
+                        val nextCheck = ChessRules.isInCheck(next, next.turn)
+                        if (nextStatus == ChessGameStatus.IN_PROGRESS) {
+                          VaultAudioEngine.playGameSfx(if (nextCheck) GameSfx.CHECK else GameSfx.CHESS_MOVE)
+                        }
+                        if (friendMode && nextStatus == ChessGameStatus.IN_PROGRESS) {
                           val nextLabel = if (next.turn == ChessColor.WHITE) "White" else "Black"
-                          val inCheck = ChessRules.isInCheck(next, next.turn)
-                          statusText = if (inCheck) "Check! $nextLabel to move" else "Pass & Play · $nextLabel to move"
+                          statusText = if (nextCheck) "Check! $nextLabel to move" else "Pass & Play · $nextLabel to move"
                         }
                       } else if (piece != null && piece.color == activeTurn) {
                         selectedSquare = if (isSel) null else (r to c)
@@ -394,12 +428,15 @@ fun VaultChessGame(
                     .testTag("chess_sq_${r}_$c"),
               ) {
                 if (piece != null) {
-                  val glyph = if (piece.color == ChessColor.WHITE) piece.type.symbolWhite else piece.type.symbolBlack
-                  Text(
-                    text = glyph,
-                    fontSize = 26.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (piece.color == ChessColor.WHITE) Color(0xFFFFFFFF) else Color(0xFF0B0E14),
+                  val popScale = remember(chessState.lastMove, r, c) { Animatable(if (isLandingSquare) 0.72f else 1f) }
+                  LaunchedEffect(chessState.lastMove, r, c) {
+                    if (isLandingSquare) {
+                      popScale.animateTo(1f, spring(dampingRatio = 0.55f, stiffness = 420f))
+                    }
+                  }
+                  ChessPieceVector(
+                    piece = piece,
+                    modifier = Modifier.fillMaxSize(0.84f).scale(popScale.value),
                   )
                 }
                 if (targetMove != null) {
@@ -429,5 +466,142 @@ fun VaultChessGame(
     }
 
     Spacer(Modifier.height(10.dp))
+  }
+}
+
+@Composable
+private fun ChessPieceVector(
+  piece: ChessPiece,
+  modifier: Modifier = Modifier,
+) {
+  Canvas(modifier = modifier) {
+    drawStauntonPiece(piece)
+  }
+}
+
+private fun DrawScope.drawStauntonPiece(piece: ChessPiece) {
+  val w = size.width
+  val h = size.height
+  val fill = if (piece.color == ChessColor.WHITE) Color(0xFFF8FAFC) else Color(0xFF151C28)
+  val rim = if (piece.color == ChessColor.WHITE) Color(0xFF334155) else Color(0xFFCBD5E1)
+  val accent = if (piece.color == ChessColor.WHITE) Color(0xFFE2E8F0) else Color(0xFF475569)
+
+  // Drop Shadow + Stepped Pedestal Base shared across all pieces
+  drawOval(Color.Black.copy(alpha = 0.25f), Offset(w * 0.16f, h * 0.84f), Size(w * 0.68f, h * 0.11f))
+  drawRoundRect(fill, Offset(w * 0.18f, h * 0.76f), Size(w * 0.64f, h * 0.13f), CornerRadius(6f))
+  drawRoundRect(rim, Offset(w * 0.18f, h * 0.76f), Size(w * 0.64f, h * 0.13f), CornerRadius(6f), style = Stroke(width = 2.2f))
+
+  val outline = Stroke(width = 2.4f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+  when (piece.type) {
+    PieceType.PAWN -> {
+      val stem = Path().apply {
+        moveTo(w * 0.30f, h * 0.76f)
+        quadraticBezierTo(w * 0.40f, h * 0.56f, w * 0.42f, h * 0.44f)
+        lineTo(w * 0.58f, h * 0.44f)
+        quadraticBezierTo(w * 0.60f, h * 0.56f, w * 0.70f, h * 0.76f)
+        close()
+      }
+      drawPath(stem, fill)
+      drawPath(stem, rim, style = outline)
+      drawRoundRect(accent, Offset(w * 0.34f, h * 0.40f), Size(w * 0.32f, h * 0.06f), CornerRadius(4f))
+      drawCircle(fill, w * 0.18f, Offset(w * 0.50f, h * 0.27f))
+      drawCircle(rim, w * 0.18f, Offset(w * 0.50f, h * 0.27f), style = outline)
+    }
+    PieceType.ROOK -> {
+      // Tower body + 3 crenellated battlements
+      val tower = Path().apply {
+        moveTo(w * 0.26f, h * 0.76f)
+        lineTo(w * 0.32f, h * 0.34f)
+        lineTo(w * 0.24f, h * 0.30f)
+        lineTo(w * 0.24f, h * 0.14f)
+        lineTo(w * 0.36f, h * 0.14f)
+        lineTo(w * 0.36f, h * 0.23f)
+        lineTo(w * 0.44f, h * 0.23f)
+        lineTo(w * 0.44f, h * 0.14f)
+        lineTo(w * 0.56f, h * 0.14f)
+        lineTo(w * 0.56f, h * 0.23f)
+        lineTo(w * 0.64f, h * 0.23f)
+        lineTo(w * 0.64f, h * 0.14f)
+        lineTo(w * 0.76f, h * 0.14f)
+        lineTo(w * 0.76f, h * 0.30f)
+        lineTo(w * 0.68f, h * 0.34f)
+        lineTo(w * 0.74f, h * 0.76f)
+        close()
+      }
+      drawPath(tower, fill)
+      drawPath(tower, rim, style = outline)
+    }
+    PieceType.KNIGHT -> {
+      // Sculpted Horse Profile with Ear, Muzzle, Mane & Eye
+      val knight = Path().apply {
+        moveTo(w * 0.26f, h * 0.76f)
+        quadraticBezierTo(w * 0.22f, h * 0.45f, w * 0.34f, h * 0.22f)
+        lineTo(w * 0.38f, h * 0.10f) // ear
+        lineTo(w * 0.48f, h * 0.18f)
+        quadraticBezierTo(w * 0.72f, h * 0.22f, w * 0.78f, h * 0.38f) // muzzle
+        lineTo(w * 0.70f, h * 0.46f)
+        lineTo(w * 0.54f, h * 0.44f) // jaw notch
+        quadraticBezierTo(w * 0.60f, h * 0.60f, w * 0.72f, h * 0.76f)
+        close()
+      }
+      drawPath(knight, fill)
+      drawPath(knight, rim, style = outline)
+      drawCircle(rim, w * 0.038f, Offset(w * 0.53f, h * 0.29f))
+    }
+    PieceType.BISHOP -> {
+      // Pointed Mitre with diagonal cleft & top finial orb
+      val bishop = Path().apply {
+        moveTo(w * 0.28f, h * 0.76f)
+        quadraticBezierTo(w * 0.36f, h * 0.54f, w * 0.34f, h * 0.36f)
+        quadraticBezierTo(w * 0.32f, h * 0.20f, w * 0.50f, h * 0.15f)
+        quadraticBezierTo(w * 0.68f, h * 0.20f, w * 0.66f, h * 0.36f)
+        quadraticBezierTo(w * 0.64f, h * 0.54f, w * 0.72f, h * 0.76f)
+        close()
+      }
+      drawPath(bishop, fill)
+      drawPath(bishop, rim, style = outline)
+      drawLine(rim, Offset(w * 0.44f, h * 0.29f), Offset(w * 0.58f, h * 0.40f), 2.5f, StrokeCap.Round)
+      drawCircle(fill, w * 0.065f, Offset(w * 0.50f, h * 0.11f))
+      drawCircle(rim, w * 0.065f, Offset(w * 0.50f, h * 0.11f), style = outline)
+    }
+    PieceType.QUEEN -> {
+      // Royal 5-Point Jeweled Crown & Gown
+      val queen = Path().apply {
+        moveTo(w * 0.24f, h * 0.76f)
+        lineTo(w * 0.18f, h * 0.30f)
+        lineTo(w * 0.33f, h * 0.44f)
+        lineTo(w * 0.36f, h * 0.20f)
+        lineTo(w * 0.46f, h * 0.42f)
+        lineTo(w * 0.50f, h * 0.15f)
+        lineTo(w * 0.54f, h * 0.42f)
+        lineTo(w * 0.64f, h * 0.20f)
+        lineTo(w * 0.67f, h * 0.44f)
+        lineTo(w * 0.82f, h * 0.30f)
+        lineTo(w * 0.76f, h * 0.76f)
+        close()
+      }
+      drawPath(queen, fill)
+      drawPath(queen, rim, style = outline)
+      listOf(0.18f to 0.27f, 0.36f to 0.17f, 0.50f to 0.12f, 0.64f to 0.17f, 0.82f to 0.27f).forEach { (cx, cy) ->
+        drawCircle(accent, w * 0.045f, Offset(w * cx, h * cy))
+        drawCircle(rim, w * 0.045f, Offset(w * cx, h * cy), style = Stroke(width = 1.6f))
+      }
+    }
+    PieceType.KING -> {
+      // Heraldic Cross Crown & Broad Royal Shoulders
+      val king = Path().apply {
+        moveTo(w * 0.24f, h * 0.76f)
+        lineTo(w * 0.22f, h * 0.42f)
+        quadraticBezierTo(w * 0.35f, h * 0.26f, w * 0.50f, h * 0.30f)
+        quadraticBezierTo(w * 0.65f, h * 0.26f, w * 0.78f, h * 0.42f)
+        lineTo(w * 0.76f, h * 0.76f)
+        close()
+      }
+      drawPath(king, fill)
+      drawPath(king, rim, style = outline)
+      // Cross Finial
+      drawLine(rim, Offset(w * 0.50f, h * 0.08f), Offset(w * 0.50f, h * 0.30f), 4f, StrokeCap.Round)
+      drawLine(rim, Offset(w * 0.40f, h * 0.16f), Offset(w * 0.60f, h * 0.16f), 4f, StrokeCap.Round)
+    }
   }
 }

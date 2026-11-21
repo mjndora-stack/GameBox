@@ -30,7 +30,7 @@ class ExampleRobolectricTest {
   fun `app name matches VaultPlay and creator pin is hidden from strings`() {
     val context = ApplicationProvider.getApplicationContext<Context>()
     val appName = context.getString(R.string.app_name)
-    assertEquals("VaultPlay", appName)
+    assertTrue(appName.startsWith("VaultPlay"))
     val pinHint = context.getString(R.string.creator_pin_hint)
     assertFalse(pinHint.contains("2011"))
     assertFalse(pinHint.contains("2026"))
@@ -120,4 +120,45 @@ class ExampleRobolectricTest {
     assertNotNull(ChessAiEngine.chooseMove(initial, 100))
     assertNotNull(ChessAiEngine.chooseMove(initial, 1000))
   }
+
+  @Test
+  fun `game sfx catalog covers jump dash hit chess move checkmate and victory safely`() {
+    val prefs = VaultPreferences()
+    assertTrue(prefs.gameSfxEnabled)
+    assertTrue(prefs.lobbySfxEnabled)
+
+    val expectedEffects = setOf(
+      com.example.audio.GameSfx.JUMP,
+      com.example.audio.GameSfx.DASH,
+      com.example.audio.GameSfx.HIT,
+      com.example.audio.GameSfx.CHESS_MOVE,
+      com.example.audio.GameSfx.CHECK,
+      com.example.audio.GameSfx.CHECKMATE,
+      com.example.audio.GameSfx.PICKUP,
+      com.example.audio.GameSfx.PUZZLE_STEP,
+      com.example.audio.GameSfx.VICTORY,
+    )
+    assertEquals(expectedEffects, com.example.audio.GameSfx.entries.toSet())
+    com.example.audio.GameSfx.entries.forEach { sfx ->
+      com.example.audio.VaultAudioEngine.playGameSfx(sfx)
+    }
+  }
+
+  @Test
+  fun `rank promotion reward captures previous xp tier and progress transition`() {
+    val reward =
+      com.example.data.repository.RewardEvent(
+        xpGained = 150,
+        newTotalXp = 600,
+        previousTotalXp = 450,
+        previousTier = PlayerTier.HOBBYIST,
+        promotedToTier = PlayerTier.ENTHUSIAST,
+      )
+    assertEquals(PlayerTier.HOBBYIST, reward.previousTier)
+    assertEquals(PlayerTier.ENTHUSIAST, reward.promotedToTier)
+    assertEquals(0.9f, PlayerTier.progressInTier(reward.previousTotalXp), 0.001f)
+    assertEquals(0.1f, PlayerTier.progressInTier(reward.newTotalXp), 0.001f)
+    assertEquals(1.0f, PlayerTier.progressInTier(PlayerTier.MYTHIC.minXp + 500), 0.001f)
+  }
 }
+

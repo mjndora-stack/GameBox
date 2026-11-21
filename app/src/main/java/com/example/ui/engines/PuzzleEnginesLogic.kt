@@ -38,6 +38,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.audio.GameSfx
+import com.example.audio.VaultAudioEngine
 import kotlin.math.abs
 import kotlin.random.Random
 
@@ -89,8 +91,11 @@ fun ChromaFloodGame(
     moves++
     if (next.all { it == targetColor }) {
       won = true
+      VaultAudioEngine.playGameSfx(GameSfx.VICTORY)
       val pts = 700 + (maxMoves - moves) * 40
       onAwardXp(95, pts, "logic_solver")
+    } else {
+      VaultAudioEngine.playGameSfx(GameSfx.PUZZLE_STEP)
     }
   }
 
@@ -245,7 +250,10 @@ fun NonoGridGame(
                       val matches = (0 until 25).all { i -> (next[i] == 1) == (target[i] == 1) }
                       if (matches) {
                         solved = true
+                        VaultAudioEngine.playGameSfx(GameSfx.VICTORY)
                         onAwardXp(90, 850 + stage * 100, "logic_solver")
+                      } else {
+                        VaultAudioEngine.playGameSfx(GameSfx.PUZZLE_STEP)
                       }
                     },
               ) {
@@ -339,7 +347,10 @@ fun Slide15Game(
                         val isSolved = (0 until 15).all { next[it] == it + 1 }
                         if (isSolved) {
                           won = true
+                          VaultAudioEngine.playGameSfx(GameSfx.VICTORY)
                           onAwardXp(100, (1400 - moves * 8).coerceAtLeast(400), "logic_solver")
+                        } else {
+                          VaultAudioEngine.playGameSfx(GameSfx.PUZZLE_STEP)
                         }
                       }
                     },
@@ -435,8 +446,11 @@ fun HanoiVaultGame(
                       selectedPeg = -1
                       if (next[2].size == diskCount) {
                         won = true
+                        VaultAudioEngine.playGameSfx(GameSfx.VICTORY)
                         val pts = 700 + diskCount * 200 - (moves - parMoves).coerceAtLeast(0) * 15
                         onAwardXp(80 + diskCount * 15, pts.coerceAtLeast(350), "logic_solver")
+                      } else {
+                        VaultAudioEngine.playGameSfx(GameSfx.PUZZLE_STEP)
                       }
                     } else {
                       selectedPeg = -1

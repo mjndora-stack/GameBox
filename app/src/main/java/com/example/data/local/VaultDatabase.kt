@@ -4,8 +4,10 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import com.example.data.model.DailyMissionType
 import com.example.data.model.GameEngineType
 import com.example.data.model.PlayerTier
+import java.util.Calendar
 
 @Database(
   entities = [
@@ -13,8 +15,10 @@ import com.example.data.model.PlayerTier
     GameEntryEntity::class,
     AchievementEntity::class,
     LeaderboardEntryEntity::class,
+    DailyMissionEntity::class,
+    CosmeticBadgeEntity::class,
   ],
-  version = 2,
+  version = 3,
   exportSchema = false,
 )
 abstract class VaultDatabase : RoomDatabase() {
@@ -340,7 +344,7 @@ abstract class VaultDatabase : RoomDatabase() {
         AchievementEntity(
           id = "first_launch",
           title = "Vault Initiated",
-          description = "Launch any embedded game inside VaultPlay.",
+          description = "Launch any embedded game inside VaultPlay 2.",
           iconKey = "rocket",
           xpReward = 75,
         ),
@@ -477,7 +481,7 @@ abstract class VaultDatabase : RoomDatabase() {
         LeaderboardEntryEntity(gameId = "neon_hop", playerName = "Ghost · Dev_Kael", score = 1450, tierName = "Master", isGhostRival = true),
         LeaderboardEntryEntity(gameId = "skyline_dash", playerName = "Ghost · Aero", score = 1820, tierName = "Pro", isGhostRival = true),
         LeaderboardEntryEntity(gameId = "street_fighter_2d", playerName = "Ghost · RyuBot", score = 1650, tierName = "Expert", isGhostRival = true),
-        LeaderboardEntryEntity(gameId = "flappy_bird", playerName = "Ghost · Wing", score = 25, tierName = "Pro", isGhostRival = true),
+        LeaderboardEntryEntity(gameId = "flappy_bird", playerName = "Ghost · Wing", score = 2500, tierName = "Pro", isGhostRival = true),
         LeaderboardEntryEntity(gameId = "prism_2048", playerName = "Ghost · Prism", score = 3400, tierName = "Grandmaster", isGhostRival = true),
         LeaderboardEntryEntity(gameId = "flux_circuit", playerName = "Ghost · Volt", score = 1200, tierName = "Expert", isGhostRival = true),
         LeaderboardEntryEntity(gameId = "vault_sweeper", playerName = "Ghost · Sapper", score = 1600, tierName = "Pro", isGhostRival = true),
@@ -492,5 +496,196 @@ abstract class VaultDatabase : RoomDatabase() {
         LeaderboardEntryEntity(gameId = "crate_sokoban", playerName = "Ghost · Loader", score = 2200, tierName = "Virtuoso", isGhostRival = true),
         LeaderboardEntryEntity(gameId = "queens_grid", playerName = "Ghost · Kasparov", score = 2800, tierName = "Mythic", isGhostRival = true),
       )
+
+    fun defaultCosmeticBadges(): List<CosmeticBadgeEntity> =
+      listOf(
+        CosmeticBadgeEntity(
+          id = "cosmetic_obsidian_king",
+          title = "Obsidian King Crest",
+          description = "Earned by winning a Vault Chess daily mission.",
+          rarity = "EPIC",
+          accentHex = 0xFFFFC857,
+          emblemKey = "king",
+        ),
+        CosmeticBadgeEntity(
+          id = "cosmetic_gilded_wings",
+          title = "Gilded Aviator Wings",
+          description = "Earned by scoring 500+ in Flappy Bird daily mission.",
+          rarity = "RARE",
+          accentHex = 0xFF38BDF8,
+          emblemKey = "wings",
+        ),
+        CosmeticBadgeEntity(
+          id = "cosmetic_cyber_visor",
+          title = "Cyber Runner Halo",
+          description = "Earned by clearing a Neon Hop stage mission.",
+          rarity = "RARE",
+          accentHex = 0xFF4CE8C8,
+          emblemKey = "visor",
+        ),
+        CosmeticBadgeEntity(
+          id = "cosmetic_crimson_dragon",
+          title = "Crimson Dojo Seal",
+          description = "Earned by winning a Street Fighter 2D match mission.",
+          rarity = "EPIC",
+          accentHex = 0xFFFF5C7C,
+          emblemKey = "dragon",
+        ),
+        CosmeticBadgeEntity(
+          id = "cosmetic_supersonic_bolt",
+          title = "Supersonic Bolt",
+          description = "Earned by scoring 600+ in Skyline Dash mission.",
+          rarity = "RARE",
+          accentHex = 0xFFFF884D,
+          emblemKey = "bolt",
+        ),
+        CosmeticBadgeEntity(
+          id = "cosmetic_prism_core",
+          title = "Prism Tesseract",
+          description = "Earned by solving 2 daily puzzle challenges.",
+          rarity = "EPIC",
+          accentHex = 0xFFA78BFA,
+          emblemKey = "prism",
+        ),
+        CosmeticBadgeEntity(
+          id = "cosmetic_solar_crown",
+          title = "Solar Matrix Crown",
+          description = "Earned by reaching 800+ score in Prism 2048 mission.",
+          rarity = "MYTHIC",
+          accentHex = 0xFFFDE047,
+          emblemKey = "crown",
+        ),
+        CosmeticBadgeEntity(
+          id = "cosmetic_starlight_compass",
+          title = "Vault Voyager Star",
+          description = "Earned by playing 3 distinct games in a single day.",
+          rarity = "RARE",
+          accentHex = 0xFF34D399,
+          emblemKey = "compass",
+        ),
+      )
+
+    fun currentDayKey(nowMs: Long = System.currentTimeMillis()): String {
+      val cal = Calendar.getInstance().apply { timeInMillis = nowMs }
+      val y = cal.get(Calendar.YEAR)
+      val d = cal.get(Calendar.DAY_OF_YEAR)
+      return "$y-$d"
+    }
+
+    fun generateDailyMissionsForDay(dayKey: String, cycleOffset: Int = 0): List<DailyMissionEntity> {
+      val set0 =
+        listOf(
+          DailyMissionEntity(
+            id = "dm_${dayKey}_${cycleOffset}_chess",
+            title = "Win a Chess match",
+            description = "Checkmate any AI bot or win a Friend match in Vault Chess.",
+            gameId = "vault_chess",
+            missionType = DailyMissionType.CHESS_WIN.name,
+            targetValue = 1,
+            bonusXp = 220,
+            cosmeticBadgeId = "cosmetic_obsidian_king",
+            dayKey = dayKey,
+          ),
+          DailyMissionEntity(
+            id = "dm_${dayKey}_${cycleOffset}_flappy",
+            title = "Score 500 in Flappy Bird",
+            description = "Reach 500 points (5 pipes cleared) in a Flappy Bird flight.",
+            gameId = "flappy_bird",
+            missionType = DailyMissionType.SCORE_TARGET.name,
+            targetValue = 500,
+            bonusXp = 180,
+            cosmeticBadgeId = "cosmetic_gilded_wings",
+            dayKey = dayKey,
+          ),
+          DailyMissionEntity(
+            id = "dm_${dayKey}_${cycleOffset}_neon",
+            title = "Clear a stage in Neon Hop",
+            description = "Reach the emerald portal in any Neon Hop stage.",
+            gameId = "neon_hop",
+            missionType = DailyMissionType.STAGE_CLEAR.name,
+            targetValue = 1,
+            bonusXp = 160,
+            cosmeticBadgeId = "cosmetic_cyber_visor",
+            dayKey = dayKey,
+          ),
+        )
+
+      val set1 =
+        listOf(
+          DailyMissionEntity(
+            id = "dm_${dayKey}_${cycleOffset}_sf2d",
+            title = "Win a Street Fighter 2D match",
+            description = "Win a Best-of-3 arena battle against the CPU or a friend.",
+            gameId = "street_fighter_2d",
+            missionType = DailyMissionType.SF_WIN.name,
+            targetValue = 1,
+            bonusXp = 210,
+            cosmeticBadgeId = "cosmetic_crimson_dragon",
+            dayKey = dayKey,
+          ),
+          DailyMissionEntity(
+            id = "dm_${dayKey}_${cycleOffset}_skyline",
+            title = "Score 600 in Skyline Dash",
+            description = "Chain jumps, dashes, and drone smashes to 600+ points.",
+            gameId = "skyline_dash",
+            missionType = DailyMissionType.SCORE_TARGET.name,
+            targetValue = 600,
+            bonusXp = 190,
+            cosmeticBadgeId = "cosmetic_supersonic_bolt",
+            dayKey = dayKey,
+          ),
+          DailyMissionEntity(
+            id = "dm_${dayKey}_${cycleOffset}_puzzles",
+            title = "Solve 2 Puzzle Games",
+            description = "Complete any two logic, sliding, or cipher puzzles.",
+            gameId = null,
+            missionType = DailyMissionType.PUZZLE_SOLVE_COUNT.name,
+            targetValue = 2,
+            bonusXp = 200,
+            cosmeticBadgeId = "cosmetic_prism_core",
+            dayKey = dayKey,
+          ),
+        )
+
+      val set2 =
+        listOf(
+          DailyMissionEntity(
+            id = "dm_${dayKey}_${cycleOffset}_prism",
+            title = "Score 800 in Prism 2048",
+            description = "Merge power-tiles to hit 800+ points in Prism 2048.",
+            gameId = "prism_2048",
+            missionType = DailyMissionType.SCORE_TARGET.name,
+            targetValue = 800,
+            bonusXp = 240,
+            cosmeticBadgeId = "cosmetic_solar_crown",
+            dayKey = dayKey,
+          ),
+          DailyMissionEntity(
+            id = "dm_${dayKey}_${cycleOffset}_explore",
+            title = "Vault Triple Threat",
+            description = "Play 3 different games from the library today.",
+            gameId = null,
+            missionType = DailyMissionType.GAMES_PLAYED_COUNT.name,
+            targetValue = 3,
+            bonusXp = 165,
+            cosmeticBadgeId = "cosmetic_starlight_compass",
+            dayKey = dayKey,
+          ),
+          DailyMissionEntity(
+            id = "dm_${dayKey}_${cycleOffset}_chess2",
+            title = "Win a Chess match",
+            description = "Deliver checkmate on the 64-square board today.",
+            gameId = "vault_chess",
+            missionType = DailyMissionType.CHESS_WIN.name,
+            targetValue = 1,
+            bonusXp = 220,
+            cosmeticBadgeId = "cosmetic_obsidian_king",
+            dayKey = dayKey,
+          ),
+        )
+
+      val sets = listOf(set0, set1, set2)
+      return sets[cycleOffset.mod(sets.size)]
+    }
   }
 }

@@ -41,7 +41,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.example.audio.VaultAudioEngine
+import com.example.data.local.CosmeticBadgeEntity
 import com.example.data.model.PlayerTier
+import com.example.ui.components.CosmeticBadgeEmblem
 import com.example.ui.viewmodel.VaultUiState
 
 @Composable
@@ -121,15 +123,20 @@ fun LeaderboardScreen(
 
     if (selectedGameId == "global_xp") {
       val sortedProfiles = uiState.allProfiles.sortedByDescending { it.totalXp }
+      val badgeById = uiState.cosmeticBadges.associateBy { it.id }
       itemsIndexed(sortedProfiles, key = { _, item -> item.id }) { index, profile ->
         val tier = PlayerTier.fromXp(profile.totalXp)
+        val equipped = profile.equippedBadgeId?.let { badgeById[it] }
         LeaderboardRowCard(
           rank = index + 1,
           name = profile.name,
-          subtitle = "${tier.displayName} · ${profile.gamesPlayedCount} launches",
+          subtitle =
+            if (equipped != null) "${tier.displayName} · ${equipped.title}"
+            else "${tier.displayName} · ${profile.gamesPlayedCount} launches",
           scoreText = "${profile.totalXp} XP",
           isGhost = false,
           isCurrentPlayer = profile.id == uiState.activeProfile?.id,
+          equippedBadge = equipped,
         )
       }
     } else {
@@ -216,6 +223,7 @@ private fun LeaderboardRowCard(
   scoreText: String,
   isGhost: Boolean,
   isCurrentPlayer: Boolean,
+  equippedBadge: CosmeticBadgeEntity? = null,
 ) {
   Surface(
     shape = MaterialTheme.shapes.medium,
@@ -249,11 +257,20 @@ private fun LeaderboardRowCard(
           )
         }
       }
-      Icon(
-        imageVector = if (isGhost) Icons.Rounded.SmartToy else Icons.Rounded.EmojiEvents,
-        contentDescription = null,
-        tint = if (isGhost) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.tertiary,
-      )
+      if (equippedBadge != null) {
+        CosmeticBadgeEmblem(
+          emblemKey = equippedBadge.emblemKey,
+          accentColor = androidx.compose.ui.graphics.Color(equippedBadge.accentHex),
+          unlocked = true,
+          size = 32.dp,
+        )
+      } else {
+        Icon(
+          imageVector = if (isGhost) Icons.Rounded.SmartToy else Icons.Rounded.EmojiEvents,
+          contentDescription = null,
+          tint = if (isGhost) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.tertiary,
+        )
+      }
       Column(modifier = Modifier.weight(1f)) {
         Text(name, style = MaterialTheme.typography.titleMedium)
         Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)

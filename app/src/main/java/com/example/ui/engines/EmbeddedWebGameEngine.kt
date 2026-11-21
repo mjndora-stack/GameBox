@@ -20,6 +20,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 
+import com.example.audio.GameSfx
+import com.example.audio.VaultAudioEngine
+
 private class VaultJsBridge(
   private val onAwardXp: (String, Int) -> Unit,
   private val onSubmitScore: (String, Int) -> Unit,
@@ -38,6 +41,13 @@ private class VaultJsBridge(
   @JavascriptInterface
   fun unlockAchievement(achievementId: String) {
     onUnlockAchievement(achievementId)
+  }
+
+  @JavascriptInterface
+  fun playSfx(sfxName: String) {
+    runCatching { GameSfx.valueOf(sfxName.uppercase()) }
+      .getOrNull()
+      ?.let { VaultAudioEngine.playGameSfx(it) }
   }
 }
 

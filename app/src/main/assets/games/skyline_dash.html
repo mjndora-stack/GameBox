@@ -35,7 +35,7 @@
   </div>
   <div id="overlay">
     <h1>SKYLINE DASH</h1>
-    <p>High-tempo rooftop runner. Double-jump across skyscraper gaps and trigger Air-Dash to smash through laser drones.</p>
+    <p>High-tempo rooftop parkour. Double-jump across skyscraper gaps and trigger Air-Dash to smash through hover security drones.</p>
     <p style="font-size:12px;color:#A596B0;">Tap Jump / Dash or press Space / Shift</p>
     <button id="startBtn">START RUN</button>
   </div>
@@ -61,8 +61,16 @@
   resize();
 
   let running = false;
-  let roofs = [], drones = [], coins = [], trails = [];
-  let runner, speed, distance, credits, lastSubmittedMilestone = 0;
+  let roofs = [], drones = [], coins = [], trails = [], ghosts = [];
+  let runner, speed, distance, credits, lastSubmittedMilestone = 0, globalTime = 0, nextVictoryDist = 250;
+
+  function playSfx(name) {
+    try {
+      if (window.VaultBridge && window.VaultBridge.playSfx) {
+        window.VaultBridge.playSfx(name);
+      }
+    } catch (_) {}
+  }
 
   function bridgeAward(xp, pts, achId) {
     try {
@@ -79,6 +87,7 @@
     distance = 0;
     credits = 0;
     lastSubmittedMilestone = 0;
+    nextVictoryDist = 250;
     const baseY = H * 0.68;
     roofs = [
       { x: 0, y: baseY, w: 460, h: H - baseY + 60 },
@@ -88,25 +97,29 @@
     drones = [];
     coins = [{ x: 340, y: baseY - 52, taken: false }, { x: 650, y: baseY - 82, taken: false }];
     trails = [];
-    runner = { x: 96, y: baseY - 36, w: 26, h: 36, vy: 0, jumps: 2, dashTimer: 0, dashCd: 0 };
+    ghosts = [];
+    runner = { x: 96, y: baseY - 40, w: 28, h: 40, vy: 0, jumps: 2, onGround: true, stride: 0, dashTimer: 0, dashCd: 0 };
     updateHud();
   }
 
   function doJump() {
     if (!running) return;
     if (runner.jumps > 0) {
+      playSfx('JUMP');
       runner.vy = -465;
       runner.jumps--;
-      for (let i = 0; i < 6; i++) trails.push({ x: runner.x, y: runner.y + 30, vx: -80 - Math.random()*80, vy: (Math.random()-0.5)*90, life: 0.35, color: '#FFB347' });
+      runner.onGround = false;
+      for (let i = 0; i < 6; i++) trails.push({ x: runner.x, y: runner.y + 34, vx: -80 - Math.random()*80, vy: (Math.random()-0.5)*90, life: 0.35, color: '#FFB347' });
     }
   }
 
   function doDash() {
     if (!running || runner.dashCd > 0) return;
-    runner.dashTimer = 0.24;
+    playSfx('DASH');
+    runner.dashTimer = 0.26;
     runner.dashCd = 0.85;
     runner.vy = 0;
-    for (let i = 0; i < 10; i++) trails.push({ x: runner.x, y: runner.y + 18, vx: -200 - Math.random()*100, vy: (Math.random()-0.5)*110, life: 0.4, color: '#FF6B8B' });
+    for (let i = 0; i < 12; i++) trails.push({ x: runner.x, y: runner.y + 20, vx: -220 - Math.random()*120, vy: (Math.random()-0.5)*110, life: 0.42, color: '#FF6B8B' });
   }
 
   document.getElementById('btnJump').addEventListener('pointerdown', (e) => { e.preventDefault(); doJump(); });
@@ -127,6 +140,7 @@
     running = false;
     const finalScore = Math.floor(distance) + credits * 25;
     const earnedXp = Math.max(15, Math.floor(finalScore / 20));
+    playSfx(finalScore >= 600 ? 'VICTORY' : 'HIT');
     bridgeAward(earnedXp, finalScore, finalScore >= 600 ? 'skyline_ace' : null);
     overlay.querySelector('h1').textContent = 'WIPEOUT';
     overlay.querySelector('p').textContent = `Covered ${Math.floor(distance)}m · Score ${finalScore}. +${earnedXp} XP synced to Vault.`;
@@ -138,6 +152,7 @@
   function loop(now) {
     const dt = Math.min((now - last) / 1000, 0.035);
     last = now;
+    globalTime += dt;
     if (running) update(dt);
     render();
     requestAnimationFrame(loop);
@@ -148,7 +163,10 @@
     speed = Math.min(540, speed + dt * 7.5);
     distance += (curSpeed * dt) / 16;
 
-    if (runner.dashTimer > 0) runner.dashTimer -= dt;
+    if (runner.dashTimer > 0) {
+      runner.dashTimer -= dt;
+      ghosts.push({ x: runner.x, y: runner.y, life: 0.16 });
+    }
     if (runner.dashCd > 0) runner.dashCd -= dt;
 
     if (runner.dashTimer <= 0) {
@@ -157,6 +175,7 @@
 
     const prevBottom = runner.y + runner.h;
     runner.y += runner.vy * dt;
+    runner.onGround = false;
 
     for (const r of roofs) {
       r.x -= curSpeed * dt;
@@ -165,11 +184,15 @@
           runner.y = r.y - runner.h;
           runner.vy = 0;
           runner.jumps = 2;
+          runner.onGround = true;
         }
       }
     }
 
-    // Spawn new rooftops
+    if (runner.onGround) {
+      runner.stride += dt * (curSpeed / 22);
+    }
+
     const lastRoof = roofs[roofs.length - 1];
     if (lastRoof.x + lastRoof.w < W + 260) {
       const gap = 85 + Math.random() * 95;
@@ -178,15 +201,16 @@
       const rx = lastRoof.x + lastRoof.w + gap;
       roofs.push({ x: rx, y: ny, w, h: H - ny + 80 });
       if (Math.random() < 0.75) coins.push({ x: rx + w * 0.5, y: ny - 46, taken: false });
-      if (Math.random() < 0.55) drones.push({ x: rx + w * 0.65, y: ny - 32, r: 14, smashed: false });
+      if (Math.random() < 0.55) drones.push({ x: rx + w * 0.65, y: ny - 32, r: 15, smashed: false });
     }
     if (roofs.length > 0 && roofs[0].x + roofs[0].w < -120) roofs.shift();
 
     for (const c of coins) {
       c.x -= curSpeed * dt;
-      if (!c.taken && Math.abs(c.x - (runner.x + 13)) < 24 && Math.abs(c.y - (runner.y + 18)) < 28) {
+      if (!c.taken && Math.abs(c.x - (runner.x + 14)) < 25 && Math.abs(c.y - (runner.y + 20)) < 30) {
         c.taken = true;
         credits++;
+        playSfx('PICKUP');
         bridgeAward(10, Math.floor(distance) + credits * 25, null);
       }
     }
@@ -194,12 +218,13 @@
 
     for (const d of drones) {
       d.x -= (curSpeed + 45) * dt;
-      if (!d.smashed && Math.abs(d.x - (runner.x + 13)) < 24 && Math.abs(d.y - (runner.y + 18)) < 26) {
+      if (!d.smashed && Math.abs(d.x - (runner.x + 14)) < 26 && Math.abs(d.y - (runner.y + 20)) < 28) {
         if (runner.dashTimer > 0) {
           d.smashed = true;
           credits += 2;
+          playSfx('HIT');
           bridgeAward(20, Math.floor(distance) + credits * 25, null);
-          for (let i = 0; i < 12; i++) trails.push({ x: d.x, y: d.y, vx: (Math.random()-0.5)*220, vy: (Math.random()-0.5)*220, life: 0.4, color: '#FF6B8B' });
+          for (let i = 0; i < 14; i++) trails.push({ x: d.x, y: d.y, vx: (Math.random()-0.5)*240, vy: (Math.random()-0.5)*240, life: 0.45, color: '#FF6B8B' });
         } else {
           endRun();
           return;
@@ -213,6 +238,11 @@
       return;
     }
 
+    if (distance >= nextVictoryDist) {
+      nextVictoryDist += 250;
+      playSfx('VICTORY');
+    }
+
     if (Math.floor(distance) - lastSubmittedMilestone >= 150) {
       lastSubmittedMilestone = Math.floor(distance);
       bridgeAward(15, Math.floor(distance) + credits * 25, null);
@@ -223,8 +253,90 @@
       t.x += t.vx * dt; t.y += t.vy * dt; t.life -= dt;
       if (t.life <= 0) trails.splice(i, 1);
     }
+    for (let i = ghosts.length - 1; i >= 0; i--) {
+      ghosts[i].x -= curSpeed * dt * 0.5;
+      ghosts[i].life -= dt;
+      if (ghosts[i].life <= 0) ghosts.splice(i, 1);
+    }
 
     updateHud();
+  }
+
+  function drawParkourRunner(x, y, stride, dashing, alpha = 1) {
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    const cx = x + 14;
+    const by = y + 40;
+
+    // Billowing Runner Scarf
+    const wave = Math.sin(globalTime * 18) * 4;
+    ctx.strokeStyle = dashing ? '#FF6B8B' : '#FFB347';
+    ctx.lineWidth = 4;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(cx + 2, y + 13);
+    ctx.quadraticCurveTo(cx - 12, y + 12 + wave, cx - 26, y + 16 - wave);
+    ctx.stroke();
+
+    // Sprinting / Air-Dash Legs
+    const legSwing = dashing ? 0.9 : Math.sin(stride);
+    ctx.strokeStyle = '#9D8CA8';
+    ctx.lineWidth = 4.5;
+    ctx.beginPath();
+    ctx.moveTo(cx, by - 14);
+    ctx.lineTo(cx - legSwing * 10, by - 2);
+    ctx.stroke();
+
+    ctx.strokeStyle = dashing ? '#FF8AA4' : '#FFF4E6';
+    ctx.beginPath();
+    ctx.moveTo(cx, by - 14);
+    ctx.lineTo(cx + (dashing ? 13 : legSwing * 10), dashing ? by - 10 : by - 2);
+    ctx.stroke();
+
+    // Leaning Torso Jacket
+    ctx.fillStyle = dashing ? '#FF5C7C' : '#FFF4E6';
+    ctx.beginPath();
+    ctx.moveTo(cx - 5, by - 27);
+    ctx.lineTo(cx + 9, by - 27);
+    ctx.lineTo(cx + 5, by - 13);
+    ctx.lineTo(cx - 7, by - 13);
+    ctx.closePath();
+    ctx.fill();
+
+    // Pumping Arm
+    ctx.strokeStyle = '#FFB347';
+    ctx.lineWidth = 3.5;
+    ctx.beginPath();
+    ctx.moveTo(cx + 3, by - 23);
+    ctx.lineTo(cx + (dashing ? 16 : -legSwing * 8), by - 17);
+    ctx.stroke();
+
+    // Head + Visor + Hair Spike
+    ctx.fillStyle = '#FFF4E6';
+    ctx.beginPath();
+    ctx.arc(cx + 5, by - 33, 7.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#FF6B8B';
+    ctx.beginPath();
+    ctx.moveTo(cx - 2, by - 38);
+    ctx.lineTo(cx - 8, by - 43);
+    ctx.lineTo(cx + 3, by - 39);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#FFB347';
+    ctx.fillRect(cx + 5, by - 35, 7, 3.5);
+
+    if (dashing && alpha === 1) {
+      // Supersonic Dash Shockwave Cone
+      ctx.strokeStyle = 'rgba(255, 107, 139, 0.75)';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.moveTo(cx - 6, y);
+      ctx.lineTo(cx + 26, y + 20);
+      ctx.lineTo(cx - 6, y + 40);
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   function render() {
@@ -240,6 +352,14 @@
     ctx.fillStyle = 'rgba(255, 179, 71, 0.22)';
     ctx.fill();
 
+    // Distant Parallax Skyscraper Skyline
+    ctx.fillStyle = 'rgba(18, 12, 28, 0.65)';
+    const skyShift = -((distance * 3) % 140);
+    for (let sx = skyShift; sx < W + 140; sx += 70) {
+      const bh = 80 + Math.abs(Math.sin(sx * 0.05)) * 120;
+      ctx.fillRect(sx, H - bh - 40, 56, bh + 40);
+    }
+
     // Rooftops
     for (const r of roofs) {
       ctx.fillStyle = '#0F0B18';
@@ -248,30 +368,56 @@
       ctx.fillRect(r.x, r.y, r.w, 4);
     }
 
-    // Coins
+    // Rotating Holo-Credits
     for (const c of coins) {
-      ctx.beginPath();
-      ctx.arc(c.x, c.y, 9, 0, Math.PI * 2);
+      const spin = Math.abs(Math.cos(globalTime * 5 + c.x * 0.02));
       ctx.fillStyle = '#FFD166';
-      ctx.fill();
-    }
-
-    // Drones
-    for (const d of drones) {
       ctx.beginPath();
-      ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2);
-      ctx.fillStyle = '#FF5C7C';
+      ctx.ellipse(c.x, c.y, Math.max(3, 9 * spin), 9, 0, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = '#FFF';
-      ctx.fillRect(d.x - 5, d.y - 2, 10, 4);
+      ctx.strokeStyle = '#FFF';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
     }
 
-    // Runner
+    // Animated Hover Security Drones
+    for (const d of drones) {
+      const bob = Math.sin(globalTime * 9 + d.x) * 3;
+      const dy = d.y + bob;
+      // Spinning Rotor Blades
+      const rotorW = 14 + Math.sin(globalTime * 40) * 6;
+      ctx.strokeStyle = '#94A3B8';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.moveTo(d.x - rotorW, dy - 14);
+      ctx.lineTo(d.x + rotorW, dy - 14);
+      ctx.stroke();
+      // Armored Drone Hull
+      ctx.fillStyle = '#334155';
+      ctx.beginPath();
+      ctx.moveTo(d.x - 16, dy);
+      ctx.lineTo(d.x - 8, dy - 11);
+      ctx.lineTo(d.x + 8, dy - 11);
+      ctx.lineTo(d.x + 16, dy);
+      ctx.lineTo(d.x + 8, dy + 10);
+      ctx.lineTo(d.x - 8, dy + 10);
+      ctx.closePath();
+      ctx.fill();
+      // Glowing Scanner Eye
+      ctx.fillStyle = '#FF5C7C';
+      ctx.beginPath();
+      ctx.arc(d.x - 3, dy, 4.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Dash Afterimage Ghosts
+    for (const g of ghosts) {
+      drawParkourRunner(g.x, g.y, runner.stride, true, (g.life / 0.16) * 0.38);
+    }
+
+    // Main Animated Parkour Runner
     if (runner) {
-      ctx.fillStyle = runner.dashTimer > 0 ? '#FF8AA4' : '#FFF4E6';
-      ctx.fillRect(runner.x, runner.y, runner.w, runner.h);
-      ctx.fillStyle = '#FFB347';
-      ctx.fillRect(runner.x + 14, runner.y + 8, 8, 5);
+      drawParkourRunner(runner.x, runner.y, runner.stride, runner.dashTimer > 0, 1);
     }
 
     for (const t of trails) {

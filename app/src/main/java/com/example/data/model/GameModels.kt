@@ -6,6 +6,15 @@ enum class GameEngineType(val label: String) {
   PUZZLE_NATIVE("Puzzle Engine"),
 }
 
+enum class DailyMissionType {
+  CHESS_WIN,
+  SCORE_TARGET,
+  STAGE_CLEAR,
+  SF_WIN,
+  PUZZLE_SOLVE_COUNT,
+  GAMES_PLAYED_COUNT,
+}
+
 enum class PlayerTier(
   val levelIndex: Int,
   val displayName: String,
@@ -109,6 +118,7 @@ data class VaultPreferences(
   val controlConfig: ControlConfig = ControlConfig(),
   val musicEnabled: Boolean = true,
   val lobbySfxEnabled: Boolean = true,
+  val gameSfxEnabled: Boolean = true,
   val fighterUpgrades: Map<String, FighterUpgradeLevels> = defaultFighterUpgrades(),
 ) {
   companion object {

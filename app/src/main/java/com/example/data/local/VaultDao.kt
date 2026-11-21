@@ -99,4 +99,42 @@ interface VaultDao {
 
   @Query("SELECT * FROM leaderboard_entries WHERE gameId = :gameId AND playerName = :playerName AND isGhostRival = 0 LIMIT 1")
   suspend fun getPlayerGameLeaderboard(gameId: String, playerName: String): LeaderboardEntryEntity?
+
+  @Query("UPDATE profiles SET equippedBadgeId = :badgeId WHERE id = :profileId")
+  suspend fun equipProfileBadge(profileId: Long, badgeId: String?)
+
+  // Daily Missions
+  @Query("SELECT * FROM daily_missions WHERE dayKey = :dayKey ORDER BY bonusXp DESC, id ASC")
+  fun observeDailyMissions(dayKey: String): Flow<List<DailyMissionEntity>>
+
+  @Query("SELECT * FROM daily_missions WHERE dayKey = :dayKey ORDER BY bonusXp DESC, id ASC")
+  suspend fun getDailyMissionsOnce(dayKey: String): List<DailyMissionEntity>
+
+  @Query("SELECT * FROM daily_missions ORDER BY dayKey DESC, bonusXp DESC")
+  fun observeAllDailyMissions(): Flow<List<DailyMissionEntity>>
+
+  @Insert(onConflict = OnConflictStrategy.IGNORE)
+  suspend fun insertDailyMissions(missions: List<DailyMissionEntity>)
+
+  @Update
+  suspend fun updateDailyMission(mission: DailyMissionEntity)
+
+  @Query("DELETE FROM daily_missions WHERE dayKey != :currentDayKey")
+  suspend fun deleteStaleDailyMissions(currentDayKey: String)
+
+  // Special Cosmetic Badges
+  @Query("SELECT * FROM cosmetic_badges ORDER BY unlockedAt IS NULL ASC, rarity ASC, id ASC")
+  fun observeCosmeticBadges(): Flow<List<CosmeticBadgeEntity>>
+
+  @Query("SELECT * FROM cosmetic_badges")
+  suspend fun getAllCosmeticBadgesOnce(): List<CosmeticBadgeEntity>
+
+  @Query("SELECT * FROM cosmetic_badges WHERE id = :id")
+  suspend fun getCosmeticBadgeOnce(id: String): CosmeticBadgeEntity?
+
+  @Insert(onConflict = OnConflictStrategy.IGNORE)
+  suspend fun insertCosmeticBadgesIfMissing(badges: List<CosmeticBadgeEntity>)
+
+  @Query("UPDATE cosmetic_badges SET unlockedAt = :timestamp WHERE id = :id AND unlockedAt IS NULL")
+  suspend fun unlockCosmeticBadge(id: String, timestamp: Long): Int
 }

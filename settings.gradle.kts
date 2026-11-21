@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "VaultPlay"
+rootProject.name = "VaultPlay 2"
 
 include(":app")

@@ -51,6 +51,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.audio.GameSfx
+import com.example.audio.VaultAudioEngine
 import kotlin.math.abs
 import kotlin.random.Random
 
@@ -123,8 +125,12 @@ fun Prism2048Game(
       score += gained
       if (gained > 0) {
         val maxTile = board.maxOrNull() ?: 0
-        val ach = if (!achieved256 && (maxTile >= 256 || score >= 1200)) { achieved256 = true; "puzzle_2048" } else null
+        val unlocked256 = !achieved256 && (maxTile >= 256 || score >= 1200)
+        val ach = if (unlocked256) { achieved256 = true; "puzzle_2048" } else null
+        VaultAudioEngine.playGameSfx(if (unlocked256) GameSfx.VICTORY else GameSfx.PUZZLE_STEP)
         onAwardXp((gained / 6).coerceIn(5, 45), score, ach)
+      } else {
+        VaultAudioEngine.playGameSfx(GameSfx.PUZZLE_STEP)
       }
     }
   }
@@ -325,8 +331,11 @@ fun FluxCircuitGame(
                       val allSinksLit = updated.indices.filter { updated[it].isSink }.all { it in p }
                       if (allSinksLit) {
                         won = true
+                        VaultAudioEngine.playGameSfx(GameSfx.VICTORY)
                         val pts = (600 - moves * 10).coerceAtLeast(250) + level * 100
                         onAwardXp(85, pts, "circuit_master")
+                      } else {
+                        VaultAudioEngine.playGameSfx(GameSfx.PUZZLE_STEP)
                       }
                     },
               ) {
@@ -464,6 +473,7 @@ fun VaultSweeperGame(
                         val f = flagged.copyOf()
                         f[idx] = !f[idx]
                         flagged = f
+                        VaultAudioEngine.playGameSfx(GameSfx.PUZZLE_STEP)
                         return@clickable
                       }
                       if (isFlag) return@clickable
@@ -478,6 +488,7 @@ fun VaultSweeperGame(
                       }
                       if (curMines[idx]) {
                         lost = true
+                        VaultAudioEngine.playGameSfx(GameSfx.HIT)
                         onAwardXp(15, revealed.count { it } * 15, null)
                       } else {
                         val nextRev = revealed.copyOf()
@@ -486,7 +497,10 @@ fun VaultSweeperGame(
                         val safeRevealed = nextRev.indices.count { nextRev[it] && !curMines[it] }
                         if (safeRevealed >= sizeN * sizeN - mineCount) {
                           won = true
+                          VaultAudioEngine.playGameSfx(GameSfx.VICTORY)
                           onAwardXp(110, 1100, "sweeper_clear")
+                        } else {
+                          VaultAudioEngine.playGameSfx(GameSfx.PUZZLE_STEP)
                         }
                       }
                     },
@@ -581,8 +595,11 @@ fun LumenToggleGame(
                       moves++
                       if (next.none { it }) {
                         solved = true
+                        VaultAudioEngine.playGameSfx(GameSfx.VICTORY)
                         val score = (800 - moves * 15).coerceAtLeast(300) + gridN * 80
                         onAwardXp(90, score, "logic_solver")
+                      } else {
+                        VaultAudioEngine.playGameSfx(GameSfx.PUZZLE_STEP)
                       }
                     },
               )

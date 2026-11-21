@@ -28,15 +28,16 @@ import androidx.compose.material.icons.rounded.Upgrade
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -50,12 +51,21 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import com.example.audio.GameSfx
+import com.example.audio.VaultAudioEngine
 import com.example.data.model.FighterStat
 import com.example.data.model.FighterUpgradeLevels
 import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.sin
 import kotlin.random.Random
 
 data class FighterArchetype(
@@ -113,13 +123,16 @@ private data class ArenaFighterState(
   val archetype: FighterArchetype,
   val x: Float,
   val y: Float, // 0 = ground, negative = airborne
+  val vx: Float = 0f,
   val vy: Float = 0f,
+  val walkPhase: Float = 0f,
   val facing: Int = 1, // 1 right, -1 left
   val hp: Float,
   val maxHp: Float,
   val meter: Float = 25f, // 0..100
   val action: MoveAction = MoveAction.IDLE,
   val actionTimer: Float = 0f,
+  val actionTotal: Float = 0.25f,
   val hitAppliedThisSwing: Boolean = false,
   val blocking: Boolean = false,
   val speedMul: Float = 1f,
@@ -133,6 +146,7 @@ private data class ArenaProjectile(
   val vx: Float,
   val damage: Float,
   val color: Color,
+  val age: Float = 0f,
 )
 
 private data class HitSpark(val x: Float, val y: Float, val color: Color, val life: Float)
@@ -275,7 +289,7 @@ private fun FighterSelectAndUpgradeScreen(
       }
     }
 
-    // Fighter Stat & Upgrade Card
+    // Fighter Stat, Animated Character Preview & Upgrade Card
     Surface(
       shape = MaterialTheme.shapes.large,
       color = MaterialTheme.colorScheme.surface,
@@ -288,12 +302,29 @@ private fun FighterSelectAndUpgradeScreen(
           horizontalArrangement = Arrangement.SpaceBetween,
           verticalAlignment = Alignment.CenterVertically,
         ) {
-          Column {
+          Column(modifier = Modifier.weight(1f)) {
             Text("${selectedArch.name} — ${selectedArch.title}", style = MaterialTheme.typography.titleMedium, color = selectedArch.primaryColor)
             Text("Special Move: ${selectedArch.specialName}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
           }
-          Surface(shape = RoundedCornerShape(10.dp), color = selectedArch.primaryColor.copy(alpha = 0.16f)) {
-            Icon(Icons.Rounded.SportsMma, contentDescription = null, tint = selectedArch.primaryColor, modifier = Modifier.padding(10.dp).size(24.dp))
+          Surface(shape = RoundedCornerShape(14.dp), color = Color(0xFF0E131D)) {
+            Canvas(modifier = Modifier.size(68.dp)) {
+              drawArticulatedFighter(
+                f =
+                  ArenaFighterState(
+                    archetype = selectedArch,
+                    x = 0f,
+                    y = 0f,
+                    facing = 1,
+                    hp = 100f,
+                    maxHp = 100f,
+                  ),
+                cx = size.width * 0.48f,
+                groundY = size.height * 0.90f,
+                bodyH = size.height * 0.72f,
+                animTime = 0.4f,
+                isP2MirrorColor = false,
+              )
+            }
           }
         }
 
@@ -406,6 +437,7 @@ private fun StreetFighterArena(
   var roundNumber by remember { mutableIntStateOf(1) }
   var matchBanner by remember { mutableStateOf("ROUND 1 · FIGHT!") }
   var matchOver by remember { mutableStateOf(false) }
+  var animTime by remember { mutableFloatStateOf(0f) }
 
   fun initialPlayer() =
     ArenaFighterState(
@@ -450,19 +482,17 @@ private fun StreetFighterArena(
   val projectiles = remember { mutableStateListOf<ArenaProjectile>() }
   val sparks = remember { mutableStateListOf<HitSpark>() }
 
-  // P1 Hold Controls
   var holdLeft by remember { mutableStateOf(false) }
   var holdRight by remember { mutableStateOf(false) }
   var holdBlock by remember { mutableStateOf(false) }
 
-  // P2 Hold Controls (Friend Mode)
   var p2HoldLeft by remember { mutableStateOf(false) }
   var p2HoldRight by remember { mutableStateOf(false) }
   var p2HoldBlock by remember { mutableStateOf(false) }
 
-  var aiDecisionTimer by remember { mutableStateOf(0.25f) }
+  var aiDecisionTimer by remember { mutableFloatStateOf(0.25f) }
   var aiDesiredDir by remember { mutableIntStateOf(-1) }
-  var roundPauseTimer by remember { mutableStateOf(0f) }
+  var roundPauseTimer by remember { mutableFloatStateOf(0f) }
 
   fun resetMatch() {
     playerWins = 0
@@ -484,26 +514,27 @@ private fun StreetFighterArena(
     if (move == MoveAction.SPECIAL && current.meter < 50f) return
     val dur =
       when (move) {
-        MoveAction.PUNCH -> 0.22f
-        MoveAction.KICK -> 0.30f
-        MoveAction.SPECIAL -> 0.36f
+        MoveAction.PUNCH -> 0.24f
+        MoveAction.KICK -> 0.32f
+        MoveAction.SPECIAL -> 0.38f
         else -> 0.25f
       }
     val updated =
       if (move == MoveAction.SPECIAL) {
+        VaultAudioEngine.playGameSfx(GameSfx.DASH)
         projectiles.add(
           ArenaProjectile(
             ownerIsPlayer = isPlayerOne,
-            x = current.x + current.facing * 42f,
+            x = current.x + current.facing * 48f,
             y = -58f + current.y,
             vx = current.facing * 520f,
             damage = current.archetype.baseDamage * 1.9f * current.atkMul,
             color = current.archetype.accentColor,
           )
         )
-        current.copy(action = move, actionTimer = dur, meter = (current.meter - 50f).coerceAtLeast(0f), hitAppliedThisSwing = true)
+        current.copy(action = move, actionTimer = dur, actionTotal = dur, meter = (current.meter - 50f).coerceAtLeast(0f), hitAppliedThisSwing = true)
       } else {
-        current.copy(action = move, actionTimer = dur, hitAppliedThisSwing = false)
+        current.copy(action = move, actionTimer = dur, actionTotal = dur, hitAppliedThisSwing = false)
       }
     if (isPlayerOne) pState = updated else eState = updated
   }
@@ -519,8 +550,8 @@ private fun StreetFighterArena(
         }
         val dt = ((now - lastNanos) / 1_000_000_000f).coerceIn(0.001f, 0.04f)
         lastNanos = now
+        animTime += dt
 
-        // Fade sparks
         for (i in sparks.lastIndex downTo 0) {
           val s = sparks[i]
           if (s.life - dt <= 0f) sparks.removeAt(i) else sparks[i] = s.copy(life = s.life - dt)
@@ -543,7 +574,6 @@ private fun StreetFighterArena(
         var p = pState
         var e = eState
 
-        // Facing
         p = p.copy(facing = if (p.x <= e.x) 1 else -1, blocking = holdBlock && p.action == MoveAction.IDLE)
         e =
           if (friendMode) {
@@ -552,7 +582,6 @@ private fun StreetFighterArena(
             e.copy(facing = if (e.x >= p.x) -1 else 1)
           }
 
-        // Player 1 Movement & Gravity
         val pVx =
           if (p.action == MoveAction.IDLE && !p.blocking) {
             when {
@@ -576,13 +605,14 @@ private fun StreetFighterArena(
         p = p.copy(
           x = (p.x + pVx * dt).coerceIn(60f, 940f),
           y = py,
+          vx = pVx,
           vy = pVy,
+          walkPhase = if (abs(pVx) > 5f && py >= 0f) p.walkPhase + dt * 11f else p.walkPhase,
           action = pAct,
           actionTimer = pTimer,
           meter = (p.meter + dt * 6f * p.speedMul).coerceAtMost(100f),
         )
 
-        // Player 2 / Enemy Control
         val dist = abs(p.x - e.x)
         val eVx: Float
         if (friendMode) {
@@ -603,23 +633,24 @@ private fun StreetFighterArena(
             val roll = Random.nextFloat()
             if (dist < 95f) {
               when {
-                roll < 0.35f -> e = e.copy(action = MoveAction.PUNCH, actionTimer = 0.24f, hitAppliedThisSwing = false, blocking = false)
-                roll < 0.62f -> e = e.copy(action = MoveAction.KICK, actionTimer = 0.32f, hitAppliedThisSwing = false, blocking = false)
+                roll < 0.35f -> e = e.copy(action = MoveAction.PUNCH, actionTimer = 0.24f, actionTotal = 0.24f, hitAppliedThisSwing = false, blocking = false)
+                roll < 0.62f -> e = e.copy(action = MoveAction.KICK, actionTimer = 0.32f, actionTotal = 0.32f, hitAppliedThisSwing = false, blocking = false)
                 roll < 0.80f -> e = e.copy(blocking = true)
                 else -> { aiDesiredDir = if (e.x < p.x) -1 else 1; e = e.copy(blocking = false) }
               }
             } else if (e.meter >= 50f && dist > 180f && roll < 0.35f) {
+              VaultAudioEngine.playGameSfx(GameSfx.DASH)
               projectiles.add(
                 ArenaProjectile(
                   ownerIsPlayer = false,
-                  x = e.x + e.facing * 42f,
+                  x = e.x + e.facing * 48f,
                   y = -58f + e.y,
                   vx = e.facing * 460f,
                   damage = e.archetype.baseDamage * 1.6f * e.atkMul,
                   color = e.archetype.accentColor,
                 )
               )
-              e = e.copy(action = MoveAction.SPECIAL, actionTimer = 0.36f, meter = e.meter - 50f, hitAppliedThisSwing = true, blocking = false)
+              e = e.copy(action = MoveAction.SPECIAL, actionTimer = 0.38f, actionTotal = 0.38f, meter = e.meter - 50f, hitAppliedThisSwing = true, blocking = false)
             } else {
               aiDesiredDir = if (e.x > p.x) -1 else 1
               e = e.copy(blocking = false)
@@ -641,7 +672,9 @@ private fun StreetFighterArena(
         e = e.copy(
           x = (e.x + eVx * dt).coerceIn(60f, 940f),
           y = ey,
+          vx = eVx,
           vy = eVy,
+          walkPhase = if (abs(eVx) > 5f && ey >= 0f) e.walkPhase + dt * 11f else e.walkPhase,
           action = eAct,
           actionTimer = eTimer,
           meter = (e.meter + dt * meterGainRate).coerceAtMost(100f),
@@ -651,33 +684,37 @@ private fun StreetFighterArena(
         if ((p.action == MoveAction.PUNCH || p.action == MoveAction.KICK) && !p.hitAppliedThisSwing) {
           val reach = if (p.action == MoveAction.KICK) 105f else 84f
           if (abs(e.x - p.x) <= reach && abs(e.y - p.y) < 70f) {
+            VaultAudioEngine.playGameSfx(GameSfx.HIT)
             val raw = p.archetype.baseDamage * (if (p.action == MoveAction.KICK) 1.35f else 1f) * p.atkMul
             val dmg = if (e.blocking) raw * 0.25f else raw
             e = e.copy(
               hp = (e.hp - dmg).coerceAtLeast(0f),
               x = (e.x + p.facing * 26f).coerceIn(60f, 940f),
               action = if (e.blocking) e.action else MoveAction.HURT,
-              actionTimer = if (e.blocking) e.actionTimer else 0.14f,
+              actionTimer = if (e.blocking) e.actionTimer else 0.16f,
+              actionTotal = 0.16f,
             )
             p = p.copy(hitAppliedThisSwing = true, meter = (p.meter + 14f * p.speedMul).coerceAtMost(100f))
-            sparks.add(HitSpark(e.x, e.y - 55f, p.archetype.accentColor, 0.22f))
+            sparks.add(HitSpark(e.x, e.y - 55f, p.archetype.accentColor, 0.24f))
           }
         }
 
         if ((e.action == MoveAction.PUNCH || e.action == MoveAction.KICK) && !e.hitAppliedThisSwing) {
           val reach = if (e.action == MoveAction.KICK) 102f else 82f
           if (abs(p.x - e.x) <= reach && abs(p.y - e.y) < 70f) {
+            VaultAudioEngine.playGameSfx(GameSfx.HIT)
             val raw = e.archetype.baseDamage * (if (e.action == MoveAction.KICK) 1.3f else 1f) * e.atkMul
             val dmg = if (p.blocking) raw * 0.25f else raw
             p = p.copy(
               hp = (p.hp - dmg).coerceAtLeast(0f),
               x = (p.x + e.facing * 22f).coerceIn(60f, 940f),
               action = if (p.blocking) p.action else MoveAction.HURT,
-              actionTimer = if (p.blocking) p.actionTimer else 0.14f,
+              actionTimer = if (p.blocking) p.actionTimer else 0.16f,
+              actionTotal = 0.16f,
               meter = (p.meter + 8f).coerceAtMost(100f),
             )
             e = e.copy(hitAppliedThisSwing = true, meter = (e.meter + 12f).coerceAtMost(100f))
-            sparks.add(HitSpark(p.x, p.y - 55f, e.archetype.accentColor, 0.22f))
+            sparks.add(HitSpark(p.x, p.y - 55f, e.archetype.accentColor, 0.24f))
           }
         }
 
@@ -690,17 +727,19 @@ private fun StreetFighterArena(
             continue
           }
           if (pr.ownerIsPlayer && abs(nx - e.x) < 38f && abs(pr.y - (e.y - 55f)) < 60f) {
+            VaultAudioEngine.playGameSfx(GameSfx.HIT)
             val dmg = if (e.blocking) pr.damage * 0.3f else pr.damage
-            e = e.copy(hp = (e.hp - dmg).coerceAtLeast(0f), action = MoveAction.HURT, actionTimer = 0.16f)
-            sparks.add(HitSpark(e.x, e.y - 55f, pr.color, 0.28f))
+            e = e.copy(hp = (e.hp - dmg).coerceAtLeast(0f), action = MoveAction.HURT, actionTimer = 0.18f, actionTotal = 0.18f)
+            sparks.add(HitSpark(e.x, e.y - 55f, pr.color, 0.30f))
             projectiles.removeAt(i)
           } else if (!pr.ownerIsPlayer && abs(nx - p.x) < 38f && abs(pr.y - (p.y - 55f)) < 60f) {
+            VaultAudioEngine.playGameSfx(GameSfx.HIT)
             val dmg = if (p.blocking) pr.damage * 0.3f else pr.damage
-            p = p.copy(hp = (p.hp - dmg).coerceAtLeast(0f), action = MoveAction.HURT, actionTimer = 0.16f)
-            sparks.add(HitSpark(p.x, p.y - 55f, pr.color, 0.28f))
+            p = p.copy(hp = (p.hp - dmg).coerceAtLeast(0f), action = MoveAction.HURT, actionTimer = 0.18f, actionTotal = 0.18f)
+            sparks.add(HitSpark(p.x, p.y - 55f, pr.color, 0.30f))
             projectiles.removeAt(i)
           } else {
-            projectiles[i] = pr.copy(x = nx)
+            projectiles[i] = pr.copy(x = nx, age = pr.age + dt)
           }
         }
 
@@ -713,6 +752,7 @@ private fun StreetFighterArena(
             playerWins++
             if (playerWins >= 2) {
               matchOver = true
+              VaultAudioEngine.playGameSfx(GameSfx.VICTORY)
               if (friendMode) {
                 matchBanner = "P1 (${p.archetype.name}) WINS 2P DUEL! (+100 XP)"
                 onAwardXp(100, 600, null)
@@ -723,6 +763,7 @@ private fun StreetFighterArena(
               }
             } else {
               roundPauseTimer = 1.6f
+              VaultAudioEngine.playGameSfx(GameSfx.VICTORY)
               matchBanner = "KO! ${p.archetype.name} TAKES ROUND $roundNumber!"
               onAwardXp(if (friendMode) 40 else 65, null, null)
             }
@@ -731,14 +772,17 @@ private fun StreetFighterArena(
             if (enemyWins >= 2) {
               matchOver = true
               if (friendMode) {
+                VaultAudioEngine.playGameSfx(GameSfx.VICTORY)
                 matchBanner = "P2 (${e.archetype.name}) WINS 2P DUEL! (+100 XP)"
                 onAwardXp(100, 600, null)
               } else {
+                VaultAudioEngine.playGameSfx(GameSfx.HIT)
                 matchBanner = "DEFEATED BY ${e.archetype.name} (+40 XP Practice)"
                 onAwardXp(40, 250, null)
               }
             } else {
               roundPauseTimer = 1.6f
+              VaultAudioEngine.playGameSfx(GameSfx.HIT)
               matchBanner = "KO! ${e.archetype.name} TAKES ROUND $roundNumber!"
             }
           }
@@ -785,7 +829,6 @@ private fun StreetFighterArena(
       }
     }
 
-    // Player 2 Touch Control Deck (top of arena in 2P Friend Mode for comfortable shared screen play)
     if (friendMode) {
       FighterControlRow(
         label = "P2 CONTROLS (${eState.archetype.name})",
@@ -794,7 +837,12 @@ private fun StreetFighterArena(
         onHoldLeft = { p2HoldLeft = it },
         onHoldRight = { p2HoldRight = it },
         onHoldGuard = { p2HoldBlock = it },
-        onJump = { if (!matchOver && eState.y >= 0f) eState = eState.copy(vy = -560f) },
+        onJump = {
+          if (!matchOver && eState.y >= 0f) {
+            VaultAudioEngine.playGameSfx(GameSfx.JUMP)
+            eState = eState.copy(vy = -560f)
+          }
+        },
         onPunch = { triggerFighterAction(false, MoveAction.PUNCH) },
         onKick = { triggerFighterAction(false, MoveAction.KICK) },
         onSpecial = { triggerFighterAction(false, MoveAction.SPECIAL) },
@@ -806,65 +854,89 @@ private fun StreetFighterArena(
     Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
       Canvas(modifier = Modifier.fillMaxSize().background(Color(0xFF0E131D), RoundedCornerShape(14.dp))) {
         val sx = size.width / 1000f
-        val groundY = size.height * 0.78f
+        val groundY = size.height * 0.80f
 
-        // Background dojo sky
-        drawRect(Brush.verticalGradient(listOf(Color(0xFF131826), Color(0xFF1F273B), Color(0xFF0E131D))), size = Size(size.width, groundY))
-        drawCircle(Color(0xFFFF5C7C).copy(alpha = 0.22f), size.minDimension * 0.22f, Offset(size.width * 0.5f, groundY * 0.45f))
-
-        // Floor
-        drawRect(Color(0xFF1C2331), Offset(0f, groundY), Size(size.width, size.height - groundY))
-        drawLine(Color(0xFF4CE8C8).copy(alpha = 0.5f), Offset(0f, groundY), Offset(size.width, groundY), 4f)
-
-        fun drawFighter(f: ArenaFighterState, isP2MirrorColor: Boolean = false) {
-          val cx = f.x * sx
-          val fy = groundY + f.y * (size.height / 500f)
-          val bodyH = size.height * 0.26f
-          val bodyW = bodyH * 0.42f
-
-          // Shadow
-          drawOval(Color.Black.copy(alpha = 0.35f), Offset(cx - bodyW * 0.6f, groundY - 6f), Size(bodyW * 1.2f, 12f))
-
-          val tint =
-            if (f.action == MoveAction.HURT) Color.White
-            else if (isP2MirrorColor) f.archetype.accentColor
-            else f.archetype.primaryColor
-          // Torso
-          drawRoundRect(tint, Offset(cx - bodyW / 2f, fy - bodyH * 0.72f), Size(bodyW, bodyH * 0.45f), CornerRadius(10f))
-          // Legs
-          drawRoundRect(Color(0xFF111827), Offset(cx - bodyW * 0.45f, fy - bodyH * 0.30f), Size(bodyW * 0.36f, bodyH * 0.30f), CornerRadius(6f))
-          drawRoundRect(Color(0xFF111827), Offset(cx + bodyW * 0.09f, fy - bodyH * 0.30f), Size(bodyW * 0.36f, bodyH * 0.30f), CornerRadius(6f))
-          // Head & Headband
-          val headR = bodyW * 0.38f
-          drawCircle(Color(0xFFF3D5B5), headR, Offset(cx, fy - bodyH * 0.84f))
-          drawRect(f.archetype.accentColor, Offset(cx - headR, fy - bodyH * 0.90f), Size(headR * 2f, headR * 0.45f))
-
-          // Extended limbs for attack
-          if (f.action == MoveAction.PUNCH || f.action == MoveAction.SPECIAL) {
-            drawRoundRect(f.archetype.accentColor, Offset(cx + f.facing * bodyW * 0.2f - (if (f.facing < 0) bodyW * 1.1f else 0f), fy - bodyH * 0.65f), Size(bodyW * 1.1f, bodyH * 0.14f), CornerRadius(8f))
-          } else if (f.action == MoveAction.KICK) {
-            drawRoundRect(f.archetype.accentColor, Offset(cx + f.facing * bodyW * 0.2f - (if (f.facing < 0) bodyW * 1.35f else 0f), fy - bodyH * 0.35f), Size(bodyW * 1.35f, bodyH * 0.15f), CornerRadius(8f))
-          }
-
-          if (f.blocking) {
-            drawCircle(Color(0xFF38BDF8).copy(alpha = 0.35f), bodyH * 0.52f, Offset(cx + f.facing * 12f, fy - bodyH * 0.5f))
-          }
+        // Background dojo sky & crescent moon / sun + torii silhouette
+        drawRect(Brush.verticalGradient(listOf(Color(0xFF101524), Color(0xFF1E2238), Color(0xFF0E131D))), size = Size(size.width, groundY))
+        drawCircle(Color(0xFFFF5C7C).copy(alpha = 0.24f), size.minDimension * 0.20f, Offset(size.width * 0.5f, groundY * 0.42f))
+        // Dojo pillars & beam
+        drawRect(Color(0xFF161A29), Offset(size.width * 0.14f, groundY * 0.18f), Size(14f, groundY * 0.82f))
+        drawRect(Color(0xFF161A29), Offset(size.width * 0.84f, groundY * 0.18f), Size(14f, groundY * 0.82f))
+        drawRoundRect(Color(0xFF21263B), Offset(size.width * 0.08f, groundY * 0.16f), Size(size.width * 0.84f, 12f), CornerRadius(6f))
+        // Swaying Paper Lanterns
+        val sway = sin(animTime * 2.2f) * 6f
+        listOf(0.24f, 0.76f).forEach { xf ->
+          val lx = size.width * xf + sway
+          drawLine(Color(0xFF94A3B8), Offset(size.width * xf, groundY * 0.19f), Offset(lx, groundY * 0.28f), 2f)
+          drawOval(Color(0xFFFF9F43).copy(alpha = 0.85f), Offset(lx - 11f, groundY * 0.28f), Size(22f, 28f))
         }
 
-        drawFighter(pState)
-        drawFighter(eState, isP2MirrorColor = friendMode && pState.archetype.id == eState.archetype.id)
+        // Dojo wooden floor with perspective planks
+        drawRect(Color(0xFF1B202E), Offset(0f, groundY), Size(size.width, size.height - groundY))
+        drawLine(Color(0xFF4CE8C8).copy(alpha = 0.55f), Offset(0f, groundY), Offset(size.width, groundY), 4f)
+        for (i in 1..7) {
+          val xTop = size.width * (i / 8f)
+          val xBot = size.width * 0.5f + (xTop - size.width * 0.5f) * 1.45f
+          drawLine(Color(0xFF2B3347), Offset(xTop, groundY), Offset(xBot, size.height), 2f)
+        }
 
-        // Projectiles
+        val bodyH = size.height * 0.30f
+        drawArticulatedFighter(
+          f = pState,
+          cx = pState.x * sx,
+          groundY = groundY + pState.y * (size.height / 500f),
+          bodyH = bodyH,
+          animTime = animTime,
+          isP2MirrorColor = false,
+          floorY = groundY,
+        )
+        drawArticulatedFighter(
+          f = eState,
+          cx = eState.x * sx,
+          groundY = groundY + eState.y * (size.height / 500f),
+          bodyH = bodyH,
+          animTime = animTime,
+          isP2MirrorColor = friendMode && pState.archetype.id == eState.archetype.id,
+          floorY = groundY,
+        )
+
+        // Animated Projectiles (Energy Fireball / Volt Bolt / Shockwave Orb)
         projectiles.forEach { pr ->
           val px = pr.x * sx
           val py = groundY + pr.y * (size.height / 500f)
-          drawCircle(pr.color.copy(alpha = 0.35f), 26f, Offset(px, py))
-          drawCircle(pr.color, 15f, Offset(px, py))
+          val dir = if (pr.vx >= 0f) 1f else -1f
+          val pulse = 1f + sin(pr.age * 24f) * 0.16f
+          // Flame / trail tail
+          val tail = Path().apply {
+            moveTo(px + dir * 18f, py)
+            lineTo(px - dir * 36f, py - 14f * pulse)
+            lineTo(px - dir * 24f, py)
+            lineTo(px - dir * 36f, py + 14f * pulse)
+            close()
+          }
+          drawPath(tail, pr.color.copy(alpha = 0.65f))
+          drawCircle(pr.color.copy(alpha = 0.32f), 26f * pulse, Offset(px, py))
+          drawCircle(pr.color, 14f * pulse, Offset(px, py))
+          drawCircle(Color.White, 6f, Offset(px + dir * 4f, py))
         }
 
-        // Sparks
+        // Hit Sparks star-bursts
         sparks.forEach { sp ->
-          drawCircle(sp.color.copy(alpha = (sp.life / 0.28f).coerceIn(0f, 1f)), 22f, Offset(sp.x * sx, groundY + sp.y * (size.height / 500f)))
+          val alpha = (sp.life / 0.30f).coerceIn(0f, 1f)
+          val cx = sp.x * sx
+          val cy = groundY + sp.y * (size.height / 500f)
+          val r = 28f * (1.2f - alpha * 0.4f)
+          for (a in 0 until 6) {
+            val ang = a * (Math.PI / 3.0) + alpha * 1.5
+            drawLine(
+              sp.color.copy(alpha = alpha),
+              Offset(cx, cy),
+              Offset(cx + (cos(ang) * r).toFloat(), cy + (sin(ang) * r).toFloat()),
+              strokeWidth = 4f,
+              cap = StrokeCap.Round,
+            )
+          }
+          drawCircle(Color.White.copy(alpha = alpha), 8f, Offset(cx, cy))
         }
       }
 
@@ -887,11 +959,253 @@ private fun StreetFighterArena(
       onHoldLeft = { holdLeft = it },
       onHoldRight = { holdRight = it },
       onHoldGuard = { holdBlock = it },
-      onJump = { if (!matchOver && pState.y >= 0f) pState = pState.copy(vy = -560f) },
+      onJump = {
+        if (!matchOver && pState.y >= 0f) {
+          VaultAudioEngine.playGameSfx(GameSfx.JUMP)
+          pState = pState.copy(vy = -560f)
+        }
+      },
       onPunch = { triggerFighterAction(true, MoveAction.PUNCH) },
       onKick = { triggerFighterAction(true, MoveAction.KICK) },
       onSpecial = { triggerFighterAction(true, MoveAction.SPECIAL) },
       tagPrefix = "sf",
+    )
+  }
+}
+
+private fun DrawScope.drawArticulatedFighter(
+  f: ArenaFighterState,
+  cx: Float,
+  groundY: Float,
+  bodyH: Float,
+  animTime: Float,
+  isP2MirrorColor: Boolean,
+  floorY: Float = groundY,
+) {
+  val dir = f.facing.toFloat()
+  val isDead = f.hp <= 0f
+  val primary =
+    when {
+      f.action == MoveAction.HURT -> Color.White
+      isP2MirrorColor -> f.archetype.accentColor
+      else -> f.archetype.primaryColor
+    }
+  val accent = if (isP2MirrorColor) f.archetype.primaryColor else f.archetype.accentColor
+  val skin = Color(0xFFF3D2B3)
+  val darkArmor = Color(0xFF131926)
+
+  // Ground shadow stays on floor even when jumping
+  drawOval(
+    Color.Black.copy(alpha = 0.42f),
+    Offset(cx - bodyH * 0.26f, floorY - 7f),
+    Size(bodyH * 0.52f, 14f),
+  )
+
+  val breath = sin(animTime * 5f + if (dir > 0) 0f else 1.5f) * (bodyH * 0.018f)
+  val isAir = f.y < -4f
+  val isMoving = abs(f.vx) > 5f && !isAir
+  val stride = if (isMoving) sin(f.walkPhase) else 0f
+  val swingProgress =
+    if (f.action != MoveAction.IDLE && f.actionTotal > 0f) {
+      1f - (f.actionTimer / f.actionTotal).coerceIn(0f, 1f)
+    } else 0f
+  val attackSnap = sin(swingProgress * Math.PI.toFloat())
+
+  val hipY = groundY - bodyH * 0.38f + breath
+  val shoulderY = hipY - bodyH * 0.34f
+  val headY = shoulderY - bodyH * 0.15f
+  val limbW = bodyH * 0.105f
+
+  val leanAngle =
+    when {
+      isDead -> -86f * dir
+      f.action == MoveAction.HURT -> -18f * dir
+      f.action == MoveAction.KICK -> -14f * dir * attackSnap
+      f.action == MoveAction.PUNCH -> 12f * dir * attackSnap
+      isMoving -> (f.vx / 350f) * 8f
+      else -> 0f
+    }
+
+  rotate(degrees = leanAngle, pivot = Offset(cx, groundY - bodyH * 0.1f)) {
+    // 1. Back Leg
+    val backFootX = cx - dir * bodyH * 0.14f - stride * bodyH * 0.18f * dir
+    val backFootY = if (isAir) groundY - bodyH * 0.14f else groundY
+    val backKneeX = (cx + backFootX) * 0.5f + dir * bodyH * 0.04f
+    val backKneeY = (hipY + backFootY) * 0.5f - (if (isAir) bodyH * 0.06f else 0f)
+    drawLine(darkArmor, Offset(cx - dir * 4f, hipY), Offset(backKneeX, backKneeY), limbW, StrokeCap.Round)
+    drawLine(darkArmor.copy(alpha = 0.9f), Offset(backKneeX, backKneeY), Offset(backFootX, backFootY - 4f), limbW * 0.92f, StrokeCap.Round)
+    drawRoundRect(accent, Offset(backFootX - 8f, backFootY - 9f), Size(18f, 9f), CornerRadius(4f))
+
+    // 2. Back Arm (punches or braces)
+    val bShoulder = Offset(cx - dir * bodyH * 0.08f, shoulderY + 4f)
+    val bHand =
+      when {
+        f.blocking -> Offset(cx + dir * bodyH * 0.16f, shoulderY - bodyH * 0.08f)
+        f.action == MoveAction.SPECIAL -> Offset(cx + dir * bodyH * 0.30f, shoulderY + 4f)
+        else -> Offset(cx + dir * bodyH * 0.14f - stride * bodyH * 0.14f * dir, shoulderY + bodyH * 0.11f)
+      }
+    drawLine(skin, bShoulder, bHand, limbW * 0.78f, StrokeCap.Round)
+    drawCircle(accent, limbW * 0.58f, bHand)
+
+    // 3. Front Leg (or High Side-Kick!)
+    if (f.action == MoveAction.KICK) {
+      val kickReach = bodyH * (0.28f + 0.38f * attackSnap)
+      val kneePos = Offset(cx + dir * kickReach * 0.52f, hipY - bodyH * 0.08f)
+      val kickFoot = Offset(cx + dir * kickReach, hipY - bodyH * 0.15f)
+      drawLine(primary, Offset(cx, hipY), kneePos, limbW * 1.05f, StrokeCap.Round)
+      drawLine(darkArmor, kneePos, kickFoot, limbW * 0.96f, StrokeCap.Round)
+      drawCircle(accent, limbW * 0.65f, kickFoot)
+      // Kick slash arc
+      drawArc(
+        color = accent.copy(alpha = 0.65f * attackSnap),
+        startAngle = if (dir > 0) -35f else 145f,
+        sweepAngle = 70f,
+        useCenter = false,
+        topLeft = Offset(cx - kickReach * 0.8f, hipY - bodyH * 0.35f),
+        size = Size(kickReach * 1.6f, bodyH * 0.45f),
+        style = Stroke(width = 5f, cap = StrokeCap.Round),
+      )
+    } else {
+      val frontFootX = cx + dir * bodyH * 0.15f + stride * bodyH * 0.18f * dir
+      val frontFootY = if (isAir) groundY - bodyH * 0.18f else groundY
+      val frontKneeX = (cx + frontFootX) * 0.5f + dir * bodyH * 0.06f
+      val frontKneeY = (hipY + frontFootY) * 0.5f - (if (isAir) bodyH * 0.08f else 0f)
+      drawLine(darkArmor, Offset(cx + dir * 4f, hipY), Offset(frontKneeX, frontKneeY), limbW, StrokeCap.Round)
+      drawLine(primary.copy(alpha = 0.85f), Offset(frontKneeX, frontKneeY), Offset(frontFootX, frontFootY - 4f), limbW * 0.92f, StrokeCap.Round)
+      drawRoundRect(accent, Offset(frontFootX - 8f, frontFootY - 9f), Size(18f, 9f), CornerRadius(4f))
+    }
+
+    // 4. Sculpted Torso / Character Armor
+    val torsoW = if (f.archetype.id == "titan") bodyH * 0.30f else bodyH * 0.23f
+    val torsoPath = Path().apply {
+      moveTo(cx - torsoW * 0.56f, shoulderY)
+      lineTo(cx + torsoW * 0.56f, shoulderY)
+      lineTo(cx + torsoW * 0.40f, hipY + 4f)
+      lineTo(cx - torsoW * 0.40f, hipY + 4f)
+      close()
+    }
+    drawPath(torsoPath, primary)
+
+    // Character-specific outfit details
+    when (f.archetype.id) {
+      "kai" -> {
+        // Martial arts V-lapel & black belt sash
+        drawLine(Color(0xFF0F172A), Offset(cx - torsoW * 0.22f, shoulderY), Offset(cx + dir * 2f, hipY - 4f), 4f)
+        drawLine(Color(0xFF0F172A), Offset(cx + torsoW * 0.22f, shoulderY), Offset(cx + dir * 2f, hipY - 4f), 4f)
+        drawRect(Color(0xFF0F172A), Offset(cx - torsoW * 0.42f, hipY - 6f), Size(torsoW * 0.84f, 7f))
+      }
+      "mira" -> {
+        // Cyber-ninja core stripe & glowing chest node
+        drawRect(darkArmor, Offset(cx - torsoW * 0.35f, shoulderY + 6f), Size(torsoW * 0.70f, bodyH * 0.20f))
+        drawCircle(accent, bodyH * 0.045f, Offset(cx + dir * 3f, shoulderY + bodyH * 0.14f))
+      }
+      "titan" -> {
+        // Heavy X-harness chestplate & spiked pauldrons
+        drawLine(accent, Offset(cx - torsoW * 0.48f, shoulderY + 2f), Offset(cx + torsoW * 0.38f, hipY), 5f)
+        drawLine(accent, Offset(cx + torsoW * 0.48f, shoulderY + 2f), Offset(cx - torsoW * 0.38f, hipY), 5f)
+        drawCircle(darkArmor, bodyH * 0.085f, Offset(cx - torsoW * 0.52f, shoulderY + 4f))
+        drawCircle(darkArmor, bodyH * 0.085f, Offset(cx + torsoW * 0.52f, shoulderY + 4f))
+      }
+    }
+
+    // 5. Head, Hair/Helmet, Headband/Visor, Eyes
+    val headR = bodyH * 0.115f
+    drawCircle(skin, headR, Offset(cx, headY))
+
+    when (f.archetype.id) {
+      "kai" -> {
+        // Spiky flame hair + fluttering headband ribbons
+        val hair = Path().apply {
+          moveTo(cx - headR * 1.1f, headY - headR * 0.2f)
+          lineTo(cx - headR * 0.9f, headY - headR * 1.25f)
+          lineTo(cx - headR * 0.3f, headY - headR * 0.9f)
+          lineTo(cx + headR * 0.2f, headY - headR * 1.38f)
+          lineTo(cx + headR * 0.7f, headY - headR * 0.85f)
+          lineTo(cx + headR * 1.05f, headY - headR * 0.35f)
+          close()
+        }
+        drawPath(hair, Color(0xFF1E1B24))
+        drawRect(accent, Offset(cx - headR, headY - headR * 0.45f), Size(headR * 2f, headR * 0.34f))
+        val ribbonWave = sin(animTime * 11f) * 6f
+        drawLine(accent, Offset(cx - dir * headR, headY - headR * 0.3f), Offset(cx - dir * (headR + 18f), headY - 4f + ribbonWave), 4f, StrokeCap.Round)
+      }
+      "mira" -> {
+        // Cyber-visor goggles + animated ponytail
+        drawArc(Color(0xFF0F172A), 180f, 180f, true, Offset(cx - headR * 1.02f, headY - headR * 1.05f), Size(headR * 2.04f, headR * 1.4f))
+        val tailWave = sin(animTime * 9f + f.walkPhase) * 6f
+        drawLine(accent, Offset(cx - dir * headR * 0.9f, headY - headR * 0.4f), Offset(cx - dir * (headR + 20f), headY + 4f + tailWave), 6f, StrokeCap.Round)
+        drawRoundRect(accent, Offset(cx + (if (dir > 0) 0f else -headR * 0.95f), headY - headR * 0.25f), Size(headR * 0.95f, headR * 0.36f), CornerRadius(4f))
+      }
+      "titan" -> {
+        // Horned juggernaut helmet + glowing visor slit
+        drawCircle(darkArmor, headR * 1.08f, Offset(cx, headY - 2f))
+        val lHorn = Path().apply {
+          moveTo(cx - headR * 0.7f, headY - headR * 0.6f)
+          lineTo(cx - headR * 1.3f, headY - headR * 1.55f)
+          lineTo(cx - headR * 0.2f, headY - headR * 0.9f)
+          close()
+        }
+        val rHorn = Path().apply {
+          moveTo(cx + headR * 0.7f, headY - headR * 0.6f)
+          lineTo(cx + headR * 1.3f, headY - headR * 1.55f)
+          lineTo(cx + headR * 0.2f, headY - headR * 0.9f)
+          close()
+        }
+        drawPath(lHorn, accent)
+        drawPath(rHorn, accent)
+        drawRect(accent, Offset(cx + dir * headR * 0.1f - (if (dir < 0) headR * 0.7f else 0f), headY - 2f), Size(headR * 0.7f, 4f))
+      }
+    }
+
+    // Fierce eyes for non-visored Kai
+    if (f.archetype.id == "kai") {
+      drawCircle(Color(0xFF0F172A), 2.5f, Offset(cx + dir * headR * 0.45f, headY - 1f))
+    }
+
+    // 6. Front Arm (Idle Guard, Punch, Special Cast, or Cross-Shield Block)
+    val fShoulder = Offset(cx + dir * bodyH * 0.06f, shoulderY + 4f)
+    when {
+      f.action == MoveAction.PUNCH -> {
+        val punchX = cx + dir * bodyH * (0.20f + 0.36f * attackSnap)
+        val fist = Offset(punchX, shoulderY + 2f)
+        drawLine(skin, fShoulder, fist, limbW * 0.85f, StrokeCap.Round)
+        drawCircle(accent, limbW * 0.78f, fist)
+        if (attackSnap > 0.4f) {
+          drawLine(Color.White.copy(alpha = 0.7f), Offset(cx + dir * bodyH * 0.18f, shoulderY + 2f), fist, 3f)
+        }
+      }
+      f.action == MoveAction.SPECIAL -> {
+        val thrust = Offset(cx + dir * bodyH * 0.36f, shoulderY + 6f)
+        drawLine(skin, fShoulder, thrust, limbW * 0.85f, StrokeCap.Round)
+        drawCircle(accent, limbW * 0.85f, thrust)
+      }
+      f.blocking -> {
+        val guardHand = Offset(cx + dir * bodyH * 0.18f, shoulderY - bodyH * 0.06f)
+        drawLine(skin, fShoulder, guardHand, limbW * 0.82f, StrokeCap.Round)
+        drawCircle(accent, limbW * 0.64f, guardHand)
+      }
+      else -> {
+        val elbow = Offset(cx + dir * bodyH * 0.10f, shoulderY + bodyH * 0.15f)
+        val guardFist = Offset(cx + dir * bodyH * 0.22f, shoulderY + bodyH * 0.06f - breath * 0.8f)
+        drawLine(skin, fShoulder, elbow, limbW * 0.8f, StrokeCap.Round)
+        drawLine(skin, elbow, guardFist, limbW * 0.8f, StrokeCap.Round)
+        drawCircle(accent, limbW * 0.66f, guardFist)
+      }
+    }
+  }
+
+  // Energy Shield Hex Ring on Block
+  if (f.blocking) {
+    drawCircle(
+      color = Color(0xFF38BDF8).copy(alpha = 0.25f),
+      radius = bodyH * 0.48f,
+      center = Offset(cx + dir * 12f, groundY - bodyH * 0.46f),
+    )
+    drawCircle(
+      color = Color(0xFF7DD3FC).copy(alpha = 0.8f),
+      radius = bodyH * 0.48f,
+      center = Offset(cx + dir * 12f, groundY - bodyH * 0.46f),
+      style = Stroke(width = 3.5f),
     )
   }
 }

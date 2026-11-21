@@ -55,6 +55,7 @@ import com.example.audio.VaultAudioEngine
 import com.example.data.local.GameEntryEntity
 import com.example.data.model.LibraryFilter
 import com.example.data.model.PlayerTier
+import com.example.ui.components.DailyMissionsPanel
 import com.example.ui.components.GameCoverArtwork
 import com.example.ui.components.TierProgressHeader
 import com.example.ui.viewmodel.VaultUiState
@@ -66,6 +67,8 @@ fun LibraryScreen(
   onFilterSelected: (LibraryFilter) -> Unit,
   onSearchChanged: (String) -> Unit,
   onLaunchGame: (GameEntryEntity) -> Unit,
+  onEquipBadge: (String?) -> Unit,
+  onCycleBonusMissions: () -> Unit,
   modifier: Modifier = Modifier,
 ) {
   var inspectingGame by remember { mutableStateOf<GameEntryEntity?>(null) }
@@ -96,6 +99,33 @@ fun LibraryScreen(
             credits = profile?.vaultCredits ?: 100,
             tier = uiState.currentTier,
             progress = uiState.tierProgress,
+            equippedBadge = uiState.equippedCosmeticBadge,
+          )
+
+          DailyMissionsPanel(
+            missions = uiState.dailyMissions,
+            cosmeticBadges = uiState.cosmeticBadges,
+            equippedBadgeId = uiState.activeProfile?.equippedBadgeId,
+            onLaunchMissionGame = { gameId ->
+              val target = uiState.games.firstOrNull { it.id == gameId }
+              if (target != null) {
+                val reqTier = runCatching { PlayerTier.valueOf(target.requiredTier) }.getOrDefault(PlayerTier.HOBBYIST)
+                if (uiState.currentTier.levelIndex < reqTier.levelIndex) {
+                  inspectingGame = target
+                } else {
+                  VaultAudioEngine.playLobbyButtonSound(accent = true)
+                  onLaunchGame(target)
+                }
+              }
+            },
+            onEquipBadge = { badgeId ->
+              VaultAudioEngine.playLobbyButtonSound(accent = true)
+              onEquipBadge(badgeId)
+            },
+            onCycleBonusSet = {
+              VaultAudioEngine.playLobbyButtonSound(accent = true)
+              onCycleBonusMissions()
+            },
           )
 
           OutlinedTextField(

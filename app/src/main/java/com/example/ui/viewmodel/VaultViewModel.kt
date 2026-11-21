@@ -5,6 +5,8 @@ import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.local.AchievementEntity
+import com.example.data.local.CosmeticBadgeEntity
+import com.example.data.local.DailyMissionEntity
 import com.example.data.local.GameEntryEntity
 import com.example.data.local.LeaderboardEntryEntity
 import com.example.data.local.ProfileEntity
@@ -40,6 +42,9 @@ data class VaultUiState(
   val selectedFilter: LibraryFilter = LibraryFilter.ALL,
   val searchQuery: String = "",
   val achievements: List<AchievementEntity> = emptyList(),
+  val dailyMissions: List<DailyMissionEntity> = emptyList(),
+  val cosmeticBadges: List<CosmeticBadgeEntity> = emptyList(),
+  val equippedCosmeticBadge: CosmeticBadgeEntity? = null,
   val leaderboardEntries: List<LeaderboardEntryEntity> = emptyList(),
   val creatorUnlocked: Boolean = false,
   val creatorPin: String = "2011",
@@ -78,6 +83,16 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
       LibraryControlTuple(filter, query, unlocked, banner, reward)
     }
 
+  private val progressionTupleFlow =
+    combine(
+      repository.achievementsFlow,
+      repository.dailyMissionsFlow,
+      repository.cosmeticBadgesFlow,
+      repository.leaderboardFlow,
+    ) { achievements, missions, cosmeticBadges, leaderboard ->
+      ProgressionTuple(achievements, missions, cosmeticBadges, leaderboard)
+    }
+
   val uiState: StateFlow<VaultUiState> =
     combine(
       seeded,
@@ -85,8 +100,7 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
       activeProfileFlow,
       repository.profilesFlow,
       repository.gamesFlow,
-      repository.achievementsFlow,
-      repository.leaderboardFlow,
+      progressionTupleFlow,
       repository.creatorPinFlow,
       libraryControlsFlow,
       inspectedPackage,
@@ -98,17 +112,21 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
       val profiles = values[3] as List<ProfileEntity>
       @Suppress("UNCHECKED_CAST")
       val games = values[4] as List<GameEntryEntity>
-      @Suppress("UNCHECKED_CAST")
-      val achievements = values[5] as List<AchievementEntity>
-      @Suppress("UNCHECKED_CAST")
-      val leaderboard = values[6] as List<LeaderboardEntryEntity>
-      val pin = values[7] as String
-      val controls = values[8] as LibraryControlTuple
-      val inspected = values[9] as InspectedPackage?
+      val prog = values[5] as ProgressionTuple
+      val pin = values[6] as String
+      val controls = values[7] as LibraryControlTuple
+      val inspected = values[8] as InspectedPackage?
 
-      val xp = activeProfile?.totalXp ?: 0
+      val resolvedProfile = activeProfile ?: profiles.firstOrNull()
+      val xp = resolvedProfile?.totalXp ?: 0
       val tier = PlayerTier.fromXp(xp)
       val progress = PlayerTier.progressInTier(xp)
+      val todayKey = VaultDatabase.currentDayKey()
+      val todayMissions = prog.missions.filter { it.dayKey == todayKey }
+      val equippedBadge =
+        resolvedProfile?.equippedBadgeId?.let { eqId ->
+          prog.cosmeticBadges.firstOrNull { it.id == eqId && it.unlockedAt != null }
+        }
 
       val filtered =
         games.filter { game ->
@@ -135,7 +153,7 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
       VaultUiState(
         isReady = isSeeded,
         preferences = prefs,
-        activeProfile = activeProfile ?: profiles.firstOrNull(),
+        activeProfile = resolvedProfile,
         allProfiles = profiles,
         currentTier = tier,
         tierProgress = progress,
@@ -143,8 +161,11 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
         filteredGames = filtered,
         selectedFilter = controls.filter,
         searchQuery = controls.query,
-        achievements = achievements,
-        leaderboardEntries = leaderboard,
+        achievements = prog.achievements,
+        dailyMissions = todayMissions,
+        cosmeticBadges = prog.cosmeticBadges,
+        equippedCosmeticBadge = equippedBadge,
+        leaderboardEntries = prog.leaderboard,
         creatorUnlocked = controls.unlocked,
         creatorPin = pin,
         statusBanner = controls.banner,
@@ -198,6 +219,10 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
     viewModelScope.launch { repository.toggleLobbySfxEnabled() }
   }
 
+  fun toggleGameSfxEnabled() {
+    viewModelScope.launch { repository.toggleGameSfxEnabled() }
+  }
+
   fun upgradeFighterStat(fighterId: String, stat: FighterStat, cost: Int) {
     val profileId = uiState.value.activeProfile?.id ?: 1L
     viewModelScope.launch {
@@ -230,6 +255,27 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
     }
   }
 
+  fun equipCosmeticBadge(badgeId: String?) {
+    val profileId = uiState.value.activeProfile?.id ?: 1L
+    viewModelScope.launch {
+      val ok = repository.equipCosmeticBadge(profileId, badgeId)
+      if (ok) {
+        statusBanner.value =
+          if (badgeId == null) "Unequipped cosmetic badge."
+          else "Equipped special cosmetic badge!"
+      }
+    }
+  }
+
+  fun cycleBonusDailyMissions() {
+    viewModelScope.launch {
+      val cycled = repository.cycleBonusDailyMissions()
+      statusBanner.value =
+        if (cycled) "Fresh bonus daily mission set rotated!"
+        else "Complete all 3 active daily missions to unlock a bonus rotation."
+    }
+  }
+
   fun awardGameProgress(
     gameId: String,
     xpDelta: Int,
@@ -239,8 +285,16 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
     val profileId = uiState.value.activeProfile?.id ?: 1L
     viewModelScope.launch {
       val reward = repository.awardProgress(profileId, gameId, xpDelta, score, achievementId)
-      if (reward != null && (reward.promotedToTier != null || reward.unlockedAchievementTitle != null)) {
-        latestReward.value = reward
+      if (
+        reward != null &&
+          (reward.promotedToTier != null ||
+            reward.unlockedAchievementTitle != null ||
+            reward.completedMissionTitle != null)
+      ) {
+        val current = latestReward.value
+        if (current?.promotedToTier == null || reward.promotedToTier != null) {
+          latestReward.value = reward
+        }
       }
     }
   }
@@ -336,5 +390,12 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
     val unlocked: Boolean,
     val banner: String?,
     val reward: RewardEvent?,
+  )
+
+  private data class ProgressionTuple(
+    val achievements: List<AchievementEntity>,
+    val missions: List<DailyMissionEntity>,
+    val cosmeticBadges: List<CosmeticBadgeEntity>,
+    val leaderboard: List<LeaderboardEntryEntity>,
   )
 }

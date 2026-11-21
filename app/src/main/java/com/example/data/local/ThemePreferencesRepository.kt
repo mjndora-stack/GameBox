@@ -3,6 +3,7 @@ package com.example.data.local
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -11,6 +12,7 @@ import com.example.data.model.FighterStat
 import com.example.data.model.VaultPreferences
 import com.example.data.model.VaultThemePreset
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 private val Context.vaultDataStore by preferencesDataStore(name = "vaultplay_prefs")
@@ -25,8 +27,12 @@ class ThemePreferencesRepository(private val context: Context) {
     val HAPTICS_ENABLED = booleanPreferencesKey("haptics_enabled")
     val MUSIC_ENABLED = booleanPreferencesKey("music_enabled")
     val LOBBY_SFX_ENABLED = booleanPreferencesKey("lobby_sfx_enabled")
+    val GAME_SFX_ENABLED = booleanPreferencesKey("game_sfx_enabled")
     val FIGHTER_UPGRADES = stringPreferencesKey("fighter_upgrades")
     val CREATOR_PIN = stringPreferencesKey("creator_pin")
+    val DAILY_LAST_DAY_KEY = stringPreferencesKey("daily_last_day_key")
+    val DAILY_CYCLE_OFFSET = intPreferencesKey("daily_cycle_offset")
+    val DAILY_PLAYED_GAMES = stringPreferencesKey("daily_played_games")
   }
 
   val preferencesFlow: Flow<VaultPreferences> =
@@ -43,6 +49,7 @@ class ThemePreferencesRepository(private val context: Context) {
           ),
         musicEnabled = prefs[Keys.MUSIC_ENABLED] ?: true,
         lobbySfxEnabled = prefs[Keys.LOBBY_SFX_ENABLED] ?: true,
+        gameSfxEnabled = prefs[Keys.GAME_SFX_ENABLED] ?: true,
         fighterUpgrades = VaultPreferences.parseFighterUpgrades(prefs[Keys.FIGHTER_UPGRADES]),
       )
     }
@@ -83,6 +90,13 @@ class ThemePreferencesRepository(private val context: Context) {
     }
   }
 
+  suspend fun toggleGameSfxEnabled() {
+    context.vaultDataStore.edit { prefs ->
+      val current = prefs[Keys.GAME_SFX_ENABLED] ?: true
+      prefs[Keys.GAME_SFX_ENABLED] = !current
+    }
+  }
+
   suspend fun upgradeFighterStat(fighterId: String, stat: FighterStat) {
     context.vaultDataStore.edit { prefs ->
       val map = VaultPreferences.parseFighterUpgrades(prefs[Keys.FIGHTER_UPGRADES]).toMutableMap()
@@ -109,5 +123,62 @@ class ThemePreferencesRepository(private val context: Context) {
 
   suspend fun setCreatorPin(pin: String) {
     context.vaultDataStore.edit { prefs -> prefs[Keys.CREATOR_PIN] = pin }
+  }
+
+  suspend fun syncDailyCycle(dayKey: String): Int {
+    var cycle = 0
+    context.vaultDataStore.edit { prefs ->
+      val prevDay = prefs[Keys.DAILY_LAST_DAY_KEY]
+      val prevCycle = prefs[Keys.DAILY_CYCLE_OFFSET] ?: 0
+      when {
+        prevDay == null -> {
+          prefs[Keys.DAILY_LAST_DAY_KEY] = dayKey
+          prefs[Keys.DAILY_CYCLE_OFFSET] = 0
+          prefs[Keys.DAILY_PLAYED_GAMES] = ""
+          cycle = 0
+        }
+        prevDay != dayKey -> {
+          val nextCycle = prevCycle + 1
+          prefs[Keys.DAILY_LAST_DAY_KEY] = dayKey
+          prefs[Keys.DAILY_CYCLE_OFFSET] = nextCycle
+          prefs[Keys.DAILY_PLAYED_GAMES] = ""
+          cycle = nextCycle
+        }
+        else -> {
+          cycle = prevCycle
+        }
+      }
+    }
+    return cycle
+  }
+
+  suspend fun advanceDailyCycle(dayKey: String): Int {
+    var cycle = 0
+    context.vaultDataStore.edit { prefs ->
+      val nextCycle = (prefs[Keys.DAILY_CYCLE_OFFSET] ?: 0) + 1
+      prefs[Keys.DAILY_LAST_DAY_KEY] = dayKey
+      prefs[Keys.DAILY_CYCLE_OFFSET] = nextCycle
+      prefs[Keys.DAILY_PLAYED_GAMES] = ""
+      cycle = nextCycle
+    }
+    return cycle
+  }
+
+  suspend fun recordDistinctGameToday(dayKey: String, gameId: String): Int {
+    var count = 0
+    context.vaultDataStore.edit { prefs ->
+      val storedDay = prefs[Keys.DAILY_LAST_DAY_KEY]
+      val existing =
+        if (storedDay == dayKey) {
+          (prefs[Keys.DAILY_PLAYED_GAMES] ?: "").split(",").filter { it.isNotBlank() }.toMutableSet()
+        } else {
+          prefs[Keys.DAILY_LAST_DAY_KEY] = dayKey
+          mutableSetOf()
+        }
+      existing.add(gameId)
+      prefs[Keys.DAILY_PLAYED_GAMES] = existing.joinToString(",")
+      count = existing.size
+    }
+    return count
   }
 }

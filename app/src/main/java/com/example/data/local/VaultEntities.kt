@@ -12,6 +12,7 @@ data class ProfileEntity(
   val vaultCredits: Int = 100,
   val gamesPlayedCount: Int = 0,
   val totalPlaySeconds: Long = 0L,
+  val equippedBadgeId: String? = null,
   val createdAt: Long = System.currentTimeMillis(),
 )
 
@@ -59,4 +60,31 @@ data class LeaderboardEntryEntity(
   val tierName: String,
   val isGhostRival: Boolean = false,
   val recordedAt: Long = System.currentTimeMillis(),
+)
+
+@Entity(tableName = "daily_missions")
+data class DailyMissionEntity(
+  @PrimaryKey val id: String,
+  val title: String,
+  val description: String,
+  val gameId: String? = null,
+  val missionType: String,
+  val targetValue: Int,
+  val currentProgress: Int = 0,
+  val bonusXp: Int,
+  val cosmeticBadgeId: String,
+  val dayKey: String,
+  val completedAt: Long? = null,
+  val rewardGranted: Boolean = false,
+)
+
+@Entity(tableName = "cosmetic_badges")
+data class CosmeticBadgeEntity(
+  @PrimaryKey val id: String,
+  val title: String,
+  val description: String,
+  val rarity: String,
+  val accentHex: Long,
+  val emblemKey: String,
+  val unlockedAt: Long? = null,
 )

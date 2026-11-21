@@ -179,12 +179,25 @@ object VaultTrackCatalog {
     if (trackKey == "lobby") LOBBY else GAME_TRACKS[trackKey] ?: GAME_TRACKS.getValue("neon_hop")
 }
 
+enum class GameSfx {
+  JUMP,
+  DASH,
+  HIT,
+  CHESS_MOVE,
+  CHECK,
+  CHECKMATE,
+  PICKUP,
+  PUZZLE_STEP,
+  VICTORY,
+}
+
 object VaultAudioEngine {
   private const val SAMPLE_RATE = 22050
 
   private val currentTrackKey = MutableStateFlow("lobby")
   @Volatile private var musicEnabled = true
   @Volatile private var lobbySfxEnabled = true
+  @Volatile private var gameSfxEnabled = true
   @Volatile private var inLobby = true
   @Volatile private var isForeground = true
 
@@ -194,9 +207,29 @@ object VaultAudioEngine {
   private val clickBuffer: ShortArray by lazy { synthesizeClick(freqStart = 760.0, freqEnd = 1140.0, ms = 36) }
   private val confirmBuffer: ShortArray by lazy { synthesizeClick(freqStart = 880.0, freqEnd = 1320.0, ms = 48) }
 
-  fun syncSettings(musicOn: Boolean, lobbySfxOn: Boolean, isLobbyScreen: Boolean) {
+  private val sfxBuffers: Map<GameSfx, ShortArray> by lazy {
+    mapOf(
+      GameSfx.JUMP to synthesizeSweep(freqStart = 260.0, freqEnd = 680.0, ms = 120, wave = WaveForm.TRIANGLE, gain = 0.42),
+      GameSfx.DASH to synthesizeDashBurst(ms = 155),
+      GameSfx.HIT to synthesizeImpactHit(ms = 140),
+      GameSfx.CHESS_MOVE to synthesizeChessWoodMove(ms = 78),
+      GameSfx.CHECK to synthesizeSequence(intArrayOf(79, 86), noteMs = 75, wave = WaveForm.TRIANGLE, gain = 0.36),
+      GameSfx.CHECKMATE to synthesizeSequence(intArrayOf(67, 63, 60, 48), noteMs = 105, wave = WaveForm.SAW, gain = 0.40),
+      GameSfx.PICKUP to synthesizeSequence(intArrayOf(76, 83), noteMs = 60, wave = WaveForm.SINE, gain = 0.34),
+      GameSfx.PUZZLE_STEP to synthesizeClick(freqStart = 520.0, freqEnd = 740.0, ms = 42),
+      GameSfx.VICTORY to synthesizeVictoryFanfare(),
+    )
+  }
+
+  fun syncSettings(
+    musicOn: Boolean,
+    lobbySfxOn: Boolean,
+    isLobbyScreen: Boolean,
+    gameSfxOn: Boolean = gameSfxEnabled,
+  ) {
     musicEnabled = musicOn
     lobbySfxEnabled = lobbySfxOn
+    gameSfxEnabled = gameSfxOn
     inLobby = isLobbyScreen
     if (musicOn && isForeground) {
       ensureMusicRunning()
@@ -228,13 +261,25 @@ object VaultAudioEngine {
   fun playLobbyButtonSound(accent: Boolean = false) {
     if (!lobbySfxEnabled || !inLobby || !isForeground) return
     val pcm = if (accent) confirmBuffer else clickBuffer
-    thread(isDaemon = true, name = "VaultLobbySfx") {
+    playStaticPcm(pcm, "VaultLobbySfx")
+  }
+
+  /** Plays an in-game synthesized sound effect (jump, hit, dash, chess move, checkmate, victory). */
+  fun playGameSfx(sfx: GameSfx) {
+    if (!gameSfxEnabled || !isForeground) return
+    val pcm = sfxBuffers[sfx] ?: return
+    playStaticPcm(pcm, "VaultGameSfx_${sfx.name}")
+  }
+
+  private fun playStaticPcm(pcm: ShortArray, threadName: String) {
+    if (pcm.isEmpty()) return
+    thread(isDaemon = true, name = threadName) {
       runCatching {
         val track =
           AudioTrack.Builder()
             .setAudioAttributes(
               AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+                .setUsage(AudioAttributes.USAGE_GAME)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                 .build()
             )
@@ -250,7 +295,8 @@ object VaultAudioEngine {
             .build()
         track.write(pcm, 0, pcm.size)
         track.play()
-        Thread.sleep(70L)
+        val durationMs = ((pcm.size.toLong() * 1000L) / SAMPLE_RATE) + 35L
+        Thread.sleep(durationMs)
         track.stop()
         track.release()
       }
@@ -323,11 +369,11 @@ object VaultAudioEngine {
 
               var sample = 0.0
               if (melFreq > 0.0) {
-                sample += sampleWave(bp.wave, melPhase) * env * 0.14
+                sample += sampleWave(bp.wave, melPhase) * env * 0.13
                 melPhase = (melPhase + melInc) % (2.0 * PI)
               }
               if (bassFreq > 0.0) {
-                sample += sampleWave(WaveForm.TRIANGLE, bassPhase) * env * 0.11
+                sample += sampleWave(WaveForm.TRIANGLE, bassPhase) * env * 0.10
                 bassPhase = (bassPhase + bassInc) % (2.0 * PI)
               }
 
@@ -368,17 +414,132 @@ object VaultAudioEngine {
     }
   }
 
-  private fun synthesizeClick(freqStart: Double, freqEnd: Double, ms: Int): ShortArray {
+  private fun synthesizeClick(freqStart: Double, freqEnd: Double, ms: Int): ShortArray =
+    synthesizeSweep(freqStart, freqEnd, ms, WaveForm.SINE, 0.34)
+
+  private fun synthesizeSweep(
+    freqStart: Double,
+    freqEnd: Double,
+    ms: Int,
+    wave: WaveForm,
+    gain: Double,
+  ): ShortArray {
     val count = (SAMPLE_RATE * ms) / 1000
     val out = ShortArray(count)
     var phase = 0.0
     for (i in 0 until count) {
       val p = i.toDouble() / count
       val freq = freqStart + (freqEnd - freqStart) * p
-      val env = (1.0 - p) * (1.0 - p)
-      phase += 2.0 * PI * freq / SAMPLE_RATE
-      val s = sin(phase) * env * 0.35
-      out[i] = (s * Short.MAX_VALUE).toInt().toShort()
+      val env = (1.0 - p) * (1.0 - p * 0.5)
+      phase = (phase + 2.0 * PI * freq / SAMPLE_RATE) % (2.0 * PI)
+      val s = sampleWave(wave, phase) * env * gain
+      out[i] = (s * Short.MAX_VALUE).toInt().coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
+    }
+    return out
+  }
+
+  private fun synthesizeDashBurst(ms: Int): ShortArray {
+    val count = (SAMPLE_RATE * ms) / 1000
+    val out = ShortArray(count)
+    var phase = 0.0
+    var noiseState = 1234567
+    for (i in 0 until count) {
+      val p = i.toDouble() / count
+      val freq = 900.0 - 650.0 * p
+      phase = (phase + 2.0 * PI * freq / SAMPLE_RATE) % (2.0 * PI)
+      noiseState = noiseState * 1664525 + 1013904223
+      val noise = ((noiseState ushr 16) and 0xFFFF) / 32768.0 - 1.0
+      val env = kotlin.math.sin(p * PI)
+      val s = (sampleWave(WaveForm.SAW, phase) * 0.55 + noise * 0.45) * env * 0.38
+      out[i] = (s * Short.MAX_VALUE).toInt().coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
+    }
+    return out
+  }
+
+  private fun synthesizeImpactHit(ms: Int): ShortArray {
+    val count = (SAMPLE_RATE * ms) / 1000
+    val out = ShortArray(count)
+    var phase = 0.0
+    var noiseState = 9876543
+    for (i in 0 until count) {
+      val p = i.toDouble() / count
+      val freq = 190.0 * (1.0 - p * 0.72)
+      phase = (phase + 2.0 * PI * freq / SAMPLE_RATE) % (2.0 * PI)
+      noiseState = noiseState * 1664525 + 1013904223
+      val noise = ((noiseState ushr 16) and 0xFFFF) / 32768.0 - 1.0
+      val bodyEnv = kotlin.math.exp(-p * 6.5)
+      val crunchEnv = kotlin.math.exp(-p * 12.0)
+      val s = (sin(phase) * bodyEnv * 0.7 + noise * crunchEnv * 0.5) * 0.52
+      out[i] = (s * Short.MAX_VALUE).toInt().coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
+    }
+    return out
+  }
+
+  private fun synthesizeChessWoodMove(ms: Int): ShortArray {
+    val count = (SAMPLE_RATE * ms) / 1000
+    val out = ShortArray(count)
+    var pLow = 0.0
+    var pWood = 0.0
+    for (i in 0 until count) {
+      val p = i.toDouble() / count
+      pLow = (pLow + 2.0 * PI * 145.0 / SAMPLE_RATE) % (2.0 * PI)
+      pWood = (pWood + 2.0 * PI * 480.0 / SAMPLE_RATE) % (2.0 * PI)
+      val env = kotlin.math.exp(-p * 11.0)
+      val s = (sin(pLow) * 0.6 + sampleWave(WaveForm.TRIANGLE, pWood) * 0.4) * env * 0.45
+      out[i] = (s * Short.MAX_VALUE).toInt().coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
+    }
+    return out
+  }
+
+  private fun synthesizeSequence(
+    midiNotes: IntArray,
+    noteMs: Int,
+    wave: WaveForm,
+    gain: Double,
+  ): ShortArray {
+    val perNote = (SAMPLE_RATE * noteMs) / 1000
+    val out = ShortArray(perNote * midiNotes.size)
+    var phase = 0.0
+    midiNotes.forEachIndexed { nIdx, midi ->
+      val freq = midiToFreq(midi)
+      val inc = 2.0 * PI * freq / SAMPLE_RATE
+      for (i in 0 until perNote) {
+        val p = i.toDouble() / perNote
+        val env = if (p < 0.08) p / 0.08 else (1.0 - p * 0.75)
+        phase = (phase + inc) % (2.0 * PI)
+        val s = sampleWave(wave, phase) * env * gain
+        out[nIdx * perNote + i] =
+          (s * Short.MAX_VALUE).toInt().coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
+      }
+    }
+    return out
+  }
+
+  private fun synthesizeVictoryFanfare(): ShortArray {
+    // Classic upbeat ascending triad + held apex note (C5 - E5 - G5 - C6)
+    val notes = listOf(72 to 90, 76 to 90, 79 to 95, 84 to 240)
+    val totalSamples = notes.sumOf { (_, ms) -> (SAMPLE_RATE * ms) / 1000 }
+    val out = ShortArray(totalSamples)
+    var offset = 0
+    var phaseMain = 0.0
+    var phaseHarm = 0.0
+    for ((midi, ms) in notes) {
+      val len = (SAMPLE_RATE * ms) / 1000
+      val f1 = midiToFreq(midi)
+      val f2 = f1 * 1.5
+      for (i in 0 until len) {
+        val p = i.toDouble() / len
+        val env =
+          when {
+            p < 0.07 -> p / 0.07
+            else -> 1.0 - p * 0.68
+          }
+        phaseMain = (phaseMain + 2.0 * PI * f1 / SAMPLE_RATE) % (2.0 * PI)
+        phaseHarm = (phaseHarm + 2.0 * PI * f2 / SAMPLE_RATE) % (2.0 * PI)
+        val s = (sampleWave(WaveForm.TRIANGLE, phaseMain) * 0.75 + sin(phaseHarm) * 0.25) * env * 0.42
+        out[offset + i] = (s * Short.MAX_VALUE).toInt().coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
+      }
+      offset += len
     }
     return out
   }

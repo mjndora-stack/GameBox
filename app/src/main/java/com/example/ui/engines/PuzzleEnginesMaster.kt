@@ -46,7 +46,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
+import com.example.audio.GameSfx
+import com.example.audio.VaultAudioEngine
 import kotlin.math.abs
 import kotlin.random.Random
 
@@ -92,8 +102,13 @@ fun CipherMastermindGame(
     history.add(Triple(draft, exact, near))
     if (exact == 4) {
       won = true
+      VaultAudioEngine.playGameSfx(GameSfx.VICTORY)
       val pts = 1000 + (8 - history.size) * 120
       onAwardXp(140, pts, null)
+    } else if (history.size >= 8) {
+      VaultAudioEngine.playGameSfx(GameSfx.HIT)
+    } else {
+      VaultAudioEngine.playGameSfx(GameSfx.PUZZLE_STEP)
     }
   }
 
@@ -292,7 +307,10 @@ fun SudokuSixGame(
               board = next
               if (next.none { it == 0 } && next.indices.none { hasConflict(next, it) }) {
                 solved = true
+                VaultAudioEngine.playGameSfx(GameSfx.VICTORY)
                 onAwardXp(160, 1400 + level * 200, null)
+              } else {
+                VaultAudioEngine.playGameSfx(GameSfx.PUZZLE_STEP)
               }
             }
           },
@@ -372,11 +390,15 @@ fun CrateSokobanGame(
   }
 
   var state by remember(roomIdx) { mutableStateOf(initialState()) }
+  var facingDir by remember(roomIdx) { mutableStateOf(1 to 0) }
+  var stepToggle by remember(roomIdx) { mutableStateOf(false) }
   val undoStack = remember(roomIdx) { mutableStateListOf<SokoState>() }
   var won by remember(roomIdx) { mutableStateOf(false) }
 
   fun step(dx: Int, dy: Int) {
     if (won) return
+    facingDir = dx to dy
+    stepToggle = !stepToggle
     val nx = state.px + dx
     val ny = state.py + dy
     if (ny !in 0 until h || nx !in 0 until w || template[ny][nx] == '#') return
@@ -389,11 +411,15 @@ fun CrateSokobanGame(
       state = SokoState(nx, ny, nextCrates)
       if (goals.all { it in nextCrates }) {
         won = true
+        VaultAudioEngine.playGameSfx(GameSfx.VICTORY)
         onAwardXp(190, 1800 + roomIdx * 250, null)
+      } else {
+        VaultAudioEngine.playGameSfx(GameSfx.PUZZLE_STEP)
       }
     } else {
       undoStack.add(state)
       state = state.copy(px = nx, py = ny)
+      VaultAudioEngine.playGameSfx(GameSfx.PUZZLE_STEP)
     }
   }
 
@@ -436,18 +462,43 @@ fun CrateSokobanGame(
                     .background(
                       when {
                         isWall -> Color(0xFF334155)
-                        isCrate && isGoal -> Color(0xFF22C55E)
-                        isCrate -> Color(0xFFD97706)
-                        isPlayer -> Color(0xFF4CE8C8)
-                        isGoal -> Color(0xFF1E3A2F)
+                        isGoal -> Color(0xFF163228)
                         else -> Color(0xFF19202C)
                       }
                     ),
               ) {
                 when {
-                  isPlayer -> Text("@", color = Color.Black, fontWeight = FontWeight.Bold)
-                  isCrate -> Text("#", color = Color.White, fontWeight = FontWeight.Bold)
-                  isGoal -> Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(Color(0xFF4CE8C8)))
+                  isPlayer -> {
+                    // Articulated Warehouse Bot Character Model
+                    Canvas(modifier = Modifier.fillMaxSize(0.86f)) {
+                      val wC = size.width; val hC = size.height
+                      val stride = if (stepToggle) 2.5f else -2.5f
+                      // Feet
+                      drawRoundRect(Color(0xFF0F172A), Offset(wC * 0.24f, hC * 0.78f + stride), Size(wC * 0.20f, hC * 0.16f), CornerRadius(4f))
+                      drawRoundRect(Color(0xFF0F172A), Offset(wC * 0.56f, hC * 0.78f - stride), Size(wC * 0.20f, hC * 0.16f), CornerRadius(4f))
+                      // Suit Torso & Arms
+                      drawRoundRect(Color(0xFF0EA5E9), Offset(wC * 0.20f, hC * 0.42f), Size(wC * 0.60f, hC * 0.40f), CornerRadius(7f))
+                      // Hard Hat & Face Visor looking in facingDir
+                      drawArc(Color(0xFFFACC15), 180f, 180f, true, Offset(wC * 0.22f, hC * 0.08f), Size(wC * 0.56f, hC * 0.40f))
+                      drawRoundRect(Color(0xFF1E293B), Offset(wC * 0.26f, hC * 0.26f), Size(wC * 0.48f, hC * 0.22f), CornerRadius(5f))
+                      val eyeShift = facingDir.first * (wC * 0.08f)
+                      val eyeY = hC * 0.36f + facingDir.second * (hC * 0.04f)
+                      drawCircle(Color(0xFF4CE8C8), wC * 0.06f, Offset(wC * 0.42f + eyeShift, eyeY))
+                      drawCircle(Color(0xFF4CE8C8), wC * 0.06f, Offset(wC * 0.58f + eyeShift, eyeY))
+                    }
+                  }
+                  isCrate -> {
+                    // Sculpted Cargo Crate Model with X-Bracing
+                    Canvas(modifier = Modifier.fillMaxSize(0.86f)) {
+                      val base = if (isGoal) Color(0xFF22C55E) else Color(0xFFD97706)
+                      val frame = if (isGoal) Color(0xFF15803D) else Color(0xFF92400E)
+                      drawRoundRect(base, Offset.Zero, size, CornerRadius(6f))
+                      drawRoundRect(frame, Offset.Zero, size, CornerRadius(6f), style = Stroke(width = 3.5f))
+                      drawLine(frame, Offset(3f, 3f), Offset(size.width - 3f, size.height - 3f), 3f)
+                      drawLine(frame, Offset(size.width - 3f, 3f), Offset(3f, size.height - 3f), 3f)
+                    }
+                  }
+                  isGoal -> Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(Color(0xFF4CE8C8)))
                 }
               }
             }
@@ -534,17 +585,32 @@ fun QueensGridGame(
                         }
                       ) {
                         won = true
+                        VaultAudioEngine.playGameSfx(GameSfx.VICTORY)
                         onAwardXp(240, boardN * 350, null)
+                      } else {
+                        VaultAudioEngine.playGameSfx(GameSfx.PUZZLE_STEP)
                       }
                     },
               ) {
                 if (hasQ) {
-                  Icon(
-                    Icons.Rounded.WorkspacePremium,
-                    contentDescription = "Queen",
-                    tint = if (clash) Color.White else MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(22.dp),
-                  )
+                  val crownFill = if (clash) Color(0xFFFCA5A5) else MaterialTheme.colorScheme.primary
+                  val crownRim = if (clash) Color.White else MaterialTheme.colorScheme.onPrimary
+                  Canvas(modifier = Modifier.fillMaxSize(0.72f)) {
+                    val wC = size.width; val hC = size.height
+                    val crown = Path().apply {
+                      moveTo(wC * 0.16f, hC * 0.80f)
+                      lineTo(wC * 0.10f, hC * 0.28f)
+                      lineTo(wC * 0.34f, hC * 0.46f)
+                      lineTo(wC * 0.50f, hC * 0.14f)
+                      lineTo(wC * 0.66f, hC * 0.46f)
+                      lineTo(wC * 0.90f, hC * 0.28f)
+                      lineTo(wC * 0.84f, hC * 0.80f)
+                      close()
+                    }
+                    drawPath(crown, crownFill)
+                    drawPath(crown, crownRim, style = Stroke(width = 2f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+                    drawCircle(crownRim, wC * 0.06f, Offset(wC * 0.50f, hC * 0.14f))
+                  }
                 }
               }
             }

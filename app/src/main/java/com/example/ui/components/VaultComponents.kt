@@ -1,5 +1,8 @@
 package com.example.ui.components
 
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -24,6 +27,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
@@ -36,6 +40,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import com.example.R
+import com.example.data.local.CosmeticBadgeEntity
 import com.example.data.model.PlayerTier
 
 @Composable
@@ -275,6 +280,7 @@ fun TierProgressHeader(
   tier: PlayerTier,
   progress: Float,
   modifier: Modifier = Modifier,
+  equippedBadge: CosmeticBadgeEntity? = null,
 ) {
   val nextTier = tier.nextTier()
   Surface(
@@ -290,18 +296,37 @@ fun TierProgressHeader(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
       ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-          Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = MaterialTheme.shapes.small) {
-            Icon(
-              Icons.Rounded.WorkspacePremium,
-              contentDescription = null,
-              tint = MaterialTheme.colorScheme.primary,
-              modifier = Modifier.padding(6.dp).size(18.dp),
+        Row(
+          modifier = Modifier.weight(1f),
+          verticalAlignment = Alignment.CenterVertically,
+          horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+          if (equippedBadge != null) {
+            CosmeticBadgeEmblem(
+              emblemKey = equippedBadge.emblemKey,
+              accentColor = Color(equippedBadge.accentHex),
+              unlocked = true,
+              size = 38.dp,
             )
+          } else {
+            Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = MaterialTheme.shapes.small) {
+              Icon(
+                Icons.Rounded.WorkspacePremium,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(6.dp).size(20.dp),
+              )
+            }
           }
           Column {
             Text("$playerName · ${tier.displayName}", style = MaterialTheme.typography.titleMedium)
-            Text(tier.subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+              text =
+                if (equippedBadge != null) "${equippedBadge.title} · ${tier.subtitle}"
+                else tier.subtitle,
+              style = MaterialTheme.typography.bodyMedium,
+              color = if (equippedBadge != null) Color(equippedBadge.accentHex) else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
           }
         }
         Surface(shape = RoundedCornerShape(999.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
@@ -314,11 +339,19 @@ fun TierProgressHeader(
         }
       }
 
+      val animatedProgress by
+        animateFloatAsState(
+          targetValue = progress.coerceIn(0f, 1f),
+          animationSpec = tween(durationMillis = 750, easing = FastOutSlowInEasing),
+          label = "header_tier_progress",
+        )
+
       LinearProgressIndicator(
-        progress = { progress },
-        modifier = Modifier.fillMaxWidth().height(7.dp),
+        progress = { animatedProgress },
+        modifier = Modifier.fillMaxWidth().height(8.dp),
         color = MaterialTheme.colorScheme.primary,
         trackColor = MaterialTheme.colorScheme.surfaceVariant,
+        strokeCap = StrokeCap.Round,
       )
 
       Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {

@@ -73,6 +73,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.audio.VaultAudioEngine
+import com.example.ui.components.RankUpCelebrationOverlay
 import com.example.ui.screens.AchievementsScreen
 import com.example.ui.screens.GameContainerScreen
 import com.example.ui.screens.LeaderboardScreen
@@ -150,11 +151,12 @@ fun VaultPlayApp(
     }
   }
 
-  LaunchedEffect(activeGameId, uiState.preferences.musicEnabled, uiState.preferences.lobbySfxEnabled) {
+  LaunchedEffect(activeGameId, uiState.preferences.musicEnabled, uiState.preferences.lobbySfxEnabled, uiState.preferences.gameSfxEnabled) {
     VaultAudioEngine.syncSettings(
       musicOn = uiState.preferences.musicEnabled,
       lobbySfxOn = uiState.preferences.lobbySfxEnabled,
       isLobbyScreen = !isInsidePlayer,
+      gameSfxOn = uiState.preferences.gameSfxEnabled,
     )
     VaultAudioEngine.setTrack(activeGameId ?: "lobby")
   }
@@ -168,8 +170,9 @@ fun VaultPlayApp(
   }
 
   LaunchedEffect(uiState.latestReward) {
-    if (uiState.latestReward != null) {
-      delay(3200L)
+    val reward = uiState.latestReward
+    if (reward != null) {
+      delay(if (reward.promotedToTier != null) 7500L else 3200L)
       viewModel.clearLatestReward()
     }
   }
@@ -322,10 +325,23 @@ fun VaultPlayApp(
                     viewModel.onGameLaunched(game.id)
                     navController.navigate("player/${game.id}")
                   },
+                  onEquipBadge = viewModel::equipCosmeticBadge,
+                  onCycleBonusMissions = viewModel::cycleBonusDailyMissions,
                 )
               }
               composable(ROUTE_ACHIEVEMENTS) {
-                AchievementsScreen(uiState = uiState)
+                AchievementsScreen(
+                  uiState = uiState,
+                  onEquipBadge = viewModel::equipCosmeticBadge,
+                  onCycleBonusMissions = viewModel::cycleBonusDailyMissions,
+                  onLaunchMissionGame = { gameId ->
+                    val target = uiState.games.firstOrNull { it.id == gameId }
+                    if (target != null) {
+                      viewModel.onGameLaunched(target.id)
+                      navController.navigate("player/${target.id}")
+                    }
+                  },
+                )
               }
               composable(ROUTE_LEADERBOARD) {
                 LeaderboardScreen(
@@ -341,6 +357,7 @@ fun VaultPlayApp(
                   onSelectTheme = viewModel::selectThemePreset,
                   onToggleMusic = viewModel::toggleMusicEnabled,
                   onToggleLobbySfx = viewModel::toggleLobbySfxEnabled,
+                  onToggleGameSfx = viewModel::toggleGameSfxEnabled,
                   onUpdateControls = viewModel::updateControlConfig,
                   onUnlockCreator = viewModel::unlockCreatorMode,
                   onLockCreator = viewModel::lockCreatorMode,
@@ -374,9 +391,13 @@ fun VaultPlayApp(
             }
           }
 
-          // Floating Achievement / Tier Promotion Banner
+          // Floating Achievement / Daily Mission Pill (when no rank-up modal is active)
           androidx.compose.animation.AnimatedVisibility(
-            visible = uiState.latestReward != null && (uiState.latestReward.promotedToTier != null || uiState.latestReward.unlockedAchievementTitle != null),
+            visible =
+              uiState.latestReward != null &&
+                uiState.latestReward.promotedToTier == null &&
+                (uiState.latestReward.unlockedAchievementTitle != null ||
+                  uiState.latestReward.completedMissionTitle != null),
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier.align(Alignment.TopCenter).padding(top = 12.dp, start = 16.dp, end = 16.dp),
@@ -400,11 +421,12 @@ fun VaultPlayApp(
                   )
                   val msg =
                     when {
-                      reward.promotedToTier != null ->
-                        "RANK UP: ${reward.promotedToTier.displayName}! (+${reward.xpGained} XP)"
-                      reward.unlockedAchievementTitle != null ->
+                      reward.completedMissionTitle != null && reward.unlockedCosmeticBadgeTitle != null ->
+                        "MISSION COMPLETE: ${reward.completedMissionTitle} · +${reward.unlockedCosmeticBadgeTitle}"
+                      reward.completedMissionTitle != null ->
+                        "MISSION COMPLETE: ${reward.completedMissionTitle} (+${reward.xpGained} XP)"
+                      else ->
                         "BADGE UNLOCKED: ${reward.unlockedAchievementTitle}"
-                      else -> "+${reward.xpGained} XP"
                     }
                   Text(
                     text = msg,
@@ -415,6 +437,26 @@ fun VaultPlayApp(
               }
             }
           }
+        }
+      }
+    }
+
+    // Full-Screen Animated Rank-Up Celebration Overlay (XP Bar Fill + Burst + Confetti)
+    androidx.compose.animation.AnimatedVisibility(
+      visible = uiState.latestReward?.promotedToTier != null,
+      enter = fadeIn(),
+      exit = fadeOut(),
+      modifier = Modifier.fillMaxSize(),
+    ) {
+      uiState.latestReward?.let { reward ->
+        if (reward.promotedToTier != null) {
+          RankUpCelebrationOverlay(
+            reward = reward,
+            onDismiss = {
+              VaultAudioEngine.playLobbyButtonSound(accent = true)
+              viewModel.clearLatestReward()
+            },
+          )
         }
       }
     }

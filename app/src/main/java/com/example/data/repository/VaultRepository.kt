@@ -5,6 +5,8 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import com.example.data.local.AchievementEntity
+import com.example.data.local.CosmeticBadgeEntity
+import com.example.data.local.DailyMissionEntity
 import com.example.data.local.GameEntryEntity
 import com.example.data.local.LeaderboardEntryEntity
 import com.example.data.local.ProfileEntity
@@ -12,6 +14,7 @@ import com.example.data.local.ThemePreferencesRepository
 import com.example.data.local.VaultDao
 import com.example.data.local.VaultDatabase
 import com.example.data.model.ControlConfig
+import com.example.data.model.DailyMissionType
 import com.example.data.model.FighterStat
 import com.example.data.model.GameEngineType
 import com.example.data.model.PlayerTier
@@ -28,8 +31,12 @@ import org.json.JSONObject
 data class RewardEvent(
   val xpGained: Int,
   val newTotalXp: Int,
+  val previousTotalXp: Int = (newTotalXp - xpGained).coerceAtLeast(0),
+  val previousTier: PlayerTier = PlayerTier.fromXp((newTotalXp - xpGained).coerceAtLeast(0)),
   val promotedToTier: PlayerTier? = null,
   val unlockedAchievementTitle: String? = null,
+  val completedMissionTitle: String? = null,
+  val unlockedCosmeticBadgeTitle: String? = null,
 )
 
 class VaultRepository(
@@ -43,6 +50,8 @@ class VaultRepository(
   val profilesFlow: Flow<List<ProfileEntity>> = dao.observeProfiles()
   val achievementsFlow: Flow<List<AchievementEntity>> = dao.observeAchievements()
   val leaderboardFlow: Flow<List<LeaderboardEntryEntity>> = dao.observeAllLeaderboardEntries()
+  val dailyMissionsFlow: Flow<List<DailyMissionEntity>> = dao.observeAllDailyMissions()
+  val cosmeticBadgesFlow: Flow<List<CosmeticBadgeEntity>> = dao.observeCosmeticBadges()
 
   fun observeProfile(profileId: Long): Flow<ProfileEntity?> = dao.observeProfile(profileId)
 
@@ -90,6 +99,42 @@ class VaultRepository(
         )
       prefs.setActiveProfileId(id)
     }
+
+    dao.insertCosmeticBadgesIfMissing(VaultDatabase.defaultCosmeticBadges())
+    ensureTodayDailyMissions()
+  }
+
+  suspend fun ensureTodayDailyMissions(): List<DailyMissionEntity> {
+    val todayKey = VaultDatabase.currentDayKey()
+    val cycle = prefs.syncDailyCycle(todayKey)
+    dao.deleteStaleDailyMissions(todayKey)
+    val existing = dao.getDailyMissionsOnce(todayKey)
+    if (existing.isEmpty()) {
+      val generated = VaultDatabase.generateDailyMissionsForDay(todayKey, cycle)
+      dao.insertDailyMissions(generated)
+      return dao.getDailyMissionsOnce(todayKey)
+    }
+    return existing
+  }
+
+  suspend fun cycleBonusDailyMissions(): Boolean {
+    val todayKey = VaultDatabase.currentDayKey()
+    val existing = dao.getDailyMissionsOnce(todayKey)
+    if (existing.isEmpty() || existing.any { it.completedAt == null }) return false
+    val nextCycle = prefs.advanceDailyCycle(todayKey)
+    dao.deleteStaleDailyMissions("_reset_")
+    val generated = VaultDatabase.generateDailyMissionsForDay(todayKey, nextCycle)
+    dao.insertDailyMissions(generated)
+    return true
+  }
+
+  suspend fun equipCosmeticBadge(profileId: Long, badgeId: String?): Boolean {
+    if (badgeId != null) {
+      val badge = dao.getCosmeticBadgeOnce(badgeId) ?: return false
+      if (badge.unlockedAt == null) return false
+    }
+    dao.equipProfileBadge(profileId, badgeId)
+    return true
   }
 
   suspend fun toggleDarkMode() = prefs.toggleDarkMode()
@@ -101,6 +146,8 @@ class VaultRepository(
   suspend fun toggleMusicEnabled() = prefs.toggleMusicEnabled()
 
   suspend fun toggleLobbySfxEnabled() = prefs.toggleLobbySfxEnabled()
+
+  suspend fun toggleGameSfxEnabled() = prefs.toggleGameSfxEnabled()
 
   suspend fun upgradeFighterStat(
     profileId: Long,
@@ -128,8 +175,37 @@ class VaultRepository(
   suspend fun recordGameLaunch(gameId: String, profileId: Long): RewardEvent? {
     dao.recordGameLaunch(gameId, System.currentTimeMillis())
     val profile = dao.getProfileOnce(profileId) ?: return null
+    val prevXp = profile.totalXp
+    val prevTier = PlayerTier.fromXp(prevXp)
     dao.updateProfile(profile.copy(gamesPlayedCount = profile.gamesPlayedCount + 1))
-    return unlockAchievementInternal("first_launch", profileId)
+
+    val firstLaunchReward = unlockAchievementInternal("first_launch", profileId)
+    val missionOutcome = evaluateDailyMissions(gameId = gameId, xpDelta = 0, score = null, achievementId = null, isLaunch = true)
+
+    if (missionOutcome.bonusXp > 0) {
+      val latest = dao.getProfileOnce(profileId) ?: profile
+      val finalXp = latest.totalXp + missionOutcome.bonusXp
+      val newTier = PlayerTier.fromXp(finalXp)
+      val equipped = latest.equippedBadgeId ?: missionOutcome.unlockedBadgeId
+      dao.updateProfile(
+        latest.copy(
+          totalXp = finalXp,
+          vaultCredits = latest.vaultCredits + (missionOutcome.bonusXp / 5).coerceAtLeast(1),
+          equippedBadgeId = equipped,
+        )
+      )
+      return RewardEvent(
+        xpGained = (firstLaunchReward?.xpGained ?: 0) + missionOutcome.bonusXp,
+        newTotalXp = finalXp,
+        previousTotalXp = prevXp,
+        previousTier = prevTier,
+        promotedToTier = if (newTier != prevTier) newTier else null,
+        unlockedAchievementTitle = firstLaunchReward?.unlockedAchievementTitle,
+        completedMissionTitle = missionOutcome.completedMissionTitle,
+        unlockedCosmeticBadgeTitle = missionOutcome.unlockedBadgeTitle,
+      )
+    }
+    return firstLaunchReward
   }
 
   suspend fun awardProgress(
@@ -156,12 +232,28 @@ class VaultRepository(
       }
     }
 
-    val safeDelta = xpDelta.coerceAtLeast(0) + extraXp
+    val missionOutcome =
+      evaluateDailyMissions(
+        gameId = gameId,
+        xpDelta = xpDelta,
+        score = score,
+        achievementId = achievementId,
+        isLaunch = false,
+      )
+
+    val safeDelta = xpDelta.coerceAtLeast(0) + extraXp + missionOutcome.bonusXp
     val newTotalXp = profile.totalXp + safeDelta
     val newCredits = profile.vaultCredits + (safeDelta / 5).coerceAtLeast(1)
     val newTier = PlayerTier.fromXp(newTotalXp)
+    val nextEquipped = profile.equippedBadgeId ?: missionOutcome.unlockedBadgeId
 
-    dao.updateProfile(profile.copy(totalXp = newTotalXp, vaultCredits = newCredits))
+    dao.updateProfile(
+      profile.copy(
+        totalXp = newTotalXp,
+        vaultCredits = newCredits,
+        equippedBadgeId = nextEquipped,
+      )
+    )
 
     // Auto-unlock rank milestone badges
     if (newTotalXp >= PlayerTier.ENTHUSIAST.minXp) {
@@ -201,8 +293,110 @@ class VaultRepository(
     return RewardEvent(
       xpGained = safeDelta,
       newTotalXp = newTotalXp,
+      previousTotalXp = profile.totalXp,
+      previousTier = prevTier,
       promotedToTier = if (newTier != prevTier) newTier else null,
       unlockedAchievementTitle = unlockedTitle,
+      completedMissionTitle = missionOutcome.completedMissionTitle,
+      unlockedCosmeticBadgeTitle = missionOutcome.unlockedBadgeTitle,
+    )
+  }
+
+  private data class MissionEvalOutcome(
+    val bonusXp: Int = 0,
+    val completedMissionTitle: String? = null,
+    val unlockedBadgeId: String? = null,
+    val unlockedBadgeTitle: String? = null,
+  )
+
+  private suspend fun evaluateDailyMissions(
+    gameId: String,
+    xpDelta: Int,
+    score: Int?,
+    achievementId: String?,
+    isLaunch: Boolean,
+  ): MissionEvalOutcome {
+    val todayKey = VaultDatabase.currentDayKey()
+    val missions = ensureTodayDailyMissions()
+    val distinctCountToday = prefs.recordDistinctGameToday(todayKey, gameId)
+    val gameEntity = dao.getGameOnce(gameId)
+    val now = System.currentTimeMillis()
+
+    var totalBonusXp = 0
+    var firstCompletedTitle: String? = null
+    var firstBadgeId: String? = null
+    var firstBadgeTitle: String? = null
+
+    missions.forEach { mission ->
+      if (mission.completedAt != null) return@forEach
+
+      val type = runCatching { DailyMissionType.valueOf(mission.missionType) }.getOrNull() ?: return@forEach
+      val nextProgress: Int? =
+        when (type) {
+          DailyMissionType.CHESS_WIN -> {
+            val isChessWin =
+              gameId == "vault_chess" &&
+                (achievementId == "chess_100_win" ||
+                  achievementId == "chess_800_super" ||
+                  (xpDelta == 90 && score == 450))
+            if (isChessWin) 1 else null
+          }
+          DailyMissionType.SF_WIN -> {
+            val isSfWin =
+              gameId == "street_fighter_2d" &&
+                (achievementId == "sf_champion" || (xpDelta >= 100 && score == 600))
+            if (isSfWin) 1 else null
+          }
+          DailyMissionType.SCORE_TARGET -> {
+            if (mission.gameId == gameId && score != null && score > mission.currentProgress) {
+              score.coerceAtMost(mission.targetValue)
+            } else null
+          }
+          DailyMissionType.STAGE_CLEAR -> {
+            val cleared = mission.gameId == gameId && (achievementId == "neon_finisher" || xpDelta >= 80)
+            if (cleared) 1 else null
+          }
+          DailyMissionType.PUZZLE_SOLVE_COUNT -> {
+            val isNonChessPuzzle =
+              gameId != "vault_chess" && gameEntity?.engineType == GameEngineType.PUZZLE_NATIVE.name
+            val solved =
+              isNonChessPuzzle &&
+                !isLaunch &&
+                (xpDelta >= 80 || achievementId in setOf("circuit_master", "sweeper_clear", "logic_solver", "puzzle_2048"))
+            if (solved) (mission.currentProgress + 1).coerceAtMost(mission.targetValue) else null
+          }
+          DailyMissionType.GAMES_PLAYED_COUNT -> {
+            if (distinctCountToday > mission.currentProgress) {
+              distinctCountToday.coerceAtMost(mission.targetValue)
+            } else null
+          }
+        }
+
+      if (nextProgress != null && nextProgress > mission.currentProgress) {
+        val completedNow = nextProgress >= mission.targetValue
+        dao.updateDailyMission(
+          mission.copy(
+            currentProgress = nextProgress,
+            completedAt = if (completedNow) now else null,
+            rewardGranted = completedNow,
+          )
+        )
+        if (completedNow) {
+          totalBonusXp += mission.bonusXp
+          if (firstCompletedTitle == null) firstCompletedTitle = mission.title
+          dao.unlockCosmeticBadge(mission.cosmeticBadgeId, now)
+          val badge = dao.getCosmeticBadgeOnce(mission.cosmeticBadgeId)
+          if (firstBadgeId == null) firstBadgeId = mission.cosmeticBadgeId
+          if (firstBadgeTitle == null && badge != null) firstBadgeTitle = badge.title
+        }
+      }
+    }
+
+    return MissionEvalOutcome(
+      bonusXp = totalBonusXp,
+      completedMissionTitle = firstCompletedTitle,
+      unlockedBadgeId = firstBadgeId,
+      unlockedBadgeTitle = firstBadgeTitle,
     )
   }
 
@@ -224,6 +418,8 @@ class VaultRepository(
     return RewardEvent(
       xpGained = ach.xpReward,
       newTotalXp = newXp,
+      previousTotalXp = profile.totalXp,
+      previousTier = prevTier,
       promotedToTier = if (newTier != prevTier) newTier else null,
       unlockedAchievementTitle = ach.title,
     )

@@ -69,6 +69,7 @@ fun VaultStudioScreen(
   onSelectTheme: (VaultThemePreset) -> Unit,
   onToggleMusic: () -> Unit,
   onToggleLobbySfx: () -> Unit,
+  onToggleGameSfx: () -> Unit,
   onUpdateControls: ((ControlConfig) -> ControlConfig) -> Unit,
   onUnlockCreator: (String) -> Boolean,
   onLockCreator: () -> Unit,
@@ -214,6 +215,16 @@ fun VaultStudioScreen(
               if (turningOn) VaultAudioEngine.playLobbyButtonSound(accent = true)
             },
             tag = "switch_lobby_sfx",
+          )
+          ControlSwitchRow(
+            title = "In-Game Sound Effects",
+            subtitle = "Jump, dash, hit, chess moves, checkmate & victory fanfare",
+            checked = uiState.preferences.gameSfxEnabled,
+            onToggle = {
+              VaultAudioEngine.playLobbyButtonSound()
+              onToggleGameSfx()
+            },
+            tag = "switch_game_sfx",
           )
         }
       }

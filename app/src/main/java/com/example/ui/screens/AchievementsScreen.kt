@@ -36,19 +36,26 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import com.example.audio.VaultAudioEngine
 import com.example.data.local.AchievementEntity
 import com.example.data.model.PlayerTier
+import com.example.ui.components.CosmeticBadgesShowcase
+import com.example.ui.components.DailyMissionsPanel
 import com.example.ui.components.TierProgressHeader
 import com.example.ui.viewmodel.VaultUiState
 
 @Composable
 fun AchievementsScreen(
   uiState: VaultUiState,
+  onEquipBadge: (String?) -> Unit,
+  onCycleBonusMissions: () -> Unit,
+  onLaunchMissionGame: (String) -> Unit,
   modifier: Modifier = Modifier,
 ) {
   val profile = uiState.activeProfile
   val xp = profile?.totalXp ?: 0
   val unlockedCount = uiState.achievements.count { it.unlockedAt != null }
+  val cosmeticUnlockedCount = uiState.cosmeticBadges.count { it.unlockedAt != null }
 
   LazyColumn(
     modifier = modifier.fillMaxSize(),
@@ -62,6 +69,57 @@ fun AchievementsScreen(
         credits = profile?.vaultCredits ?: 100,
         tier = uiState.currentTier,
         progress = uiState.tierProgress,
+        equippedBadge = uiState.equippedCosmeticBadge,
+      )
+    }
+
+    item {
+      DailyMissionsPanel(
+        missions = uiState.dailyMissions,
+        cosmeticBadges = uiState.cosmeticBadges,
+        equippedBadgeId = uiState.activeProfile?.equippedBadgeId,
+        onLaunchMissionGame = { gameId ->
+          VaultAudioEngine.playLobbyButtonSound(accent = true)
+          onLaunchMissionGame(gameId)
+        },
+        onEquipBadge = { badgeId ->
+          VaultAudioEngine.playLobbyButtonSound(accent = true)
+          onEquipBadge(badgeId)
+        },
+        onCycleBonusSet = {
+          VaultAudioEngine.playLobbyButtonSound(accent = true)
+          onCycleBonusMissions()
+        },
+      )
+    }
+
+    item {
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+      ) {
+        Text(
+          text = "SPECIAL COSMETIC BADGES",
+          style = MaterialTheme.typography.labelMedium,
+          color = MaterialTheme.colorScheme.primary,
+        )
+        Text(
+          text = "$cosmeticUnlockedCount / ${uiState.cosmeticBadges.size} COLLECTED",
+          style = MaterialTheme.typography.labelMedium,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+      }
+    }
+
+    item {
+      CosmeticBadgesShowcase(
+        cosmeticBadges = uiState.cosmeticBadges,
+        equippedBadgeId = uiState.activeProfile?.equippedBadgeId,
+        onEquipBadge = { badgeId ->
+          VaultAudioEngine.playLobbyButtonSound(accent = true)
+          onEquipBadge(badgeId)
+        },
       )
     }
 
