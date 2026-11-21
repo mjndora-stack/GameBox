@@ -42,7 +42,7 @@ data class VaultUiState(
   val achievements: List<AchievementEntity> = emptyList(),
   val leaderboardEntries: List<LeaderboardEntryEntity> = emptyList(),
   val creatorUnlocked: Boolean = false,
-  val creatorPin: String = "2026",
+  val creatorPin: String = "2011",
   val statusBanner: String? = null,
   val latestReward: RewardEvent? = null,
   val inspectedPackage: InspectedPackage? = null,

@@ -72,6 +72,9 @@ interface VaultDao {
   @Insert(onConflict = OnConflictStrategy.IGNORE)
   suspend fun insertAchievementsIfMissing(items: List<AchievementEntity>)
 
+  @Query("DELETE FROM achievements WHERE id NOT IN (:validIds)")
+  suspend fun deleteRemovedAchievements(validIds: List<String>)
+
   @Query("SELECT * FROM achievements WHERE id = :id")
   suspend fun getAchievementOnce(id: String): AchievementEntity?
 
@@ -90,6 +93,9 @@ interface VaultDao {
 
   @Insert(onConflict = OnConflictStrategy.REPLACE)
   suspend fun insertLeaderboardEntry(entry: LeaderboardEntryEntity)
+
+  @Query("DELETE FROM leaderboard_entries WHERE isGhostRival = 1 AND gameId NOT IN (:validIds)")
+  suspend fun deleteRemovedGhostRivals(validIds: List<String>)
 
   @Query("SELECT * FROM leaderboard_entries WHERE gameId = :gameId AND playerName = :playerName AND isGhostRival = 0 LIMIT 1")
   suspend fun getPlayerGameLeaderboard(gameId: String, playerName: String): LeaderboardEntryEntity?

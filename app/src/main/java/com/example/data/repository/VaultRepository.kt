@@ -66,7 +66,11 @@ class VaultRepository(
       }
     dao.insertGames(synced)
 
-    dao.insertAchievementsIfMissing(VaultDatabase.defaultAchievements())
+    val defaultAchievements = VaultDatabase.defaultAchievements()
+    dao.deleteRemovedAchievements(defaultAchievements.map { it.id })
+    dao.insertAchievementsIfMissing(defaultAchievements)
+
+    dao.deleteRemovedGhostRivals(defaultGames.map { it.id })
     val existingGhostGames =
       dao.getAllLeaderboardOnce().filter { it.isGhostRival }.map { it.gameId }.toSet()
     val missingGhosts =

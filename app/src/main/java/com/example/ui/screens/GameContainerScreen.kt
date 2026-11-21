@@ -47,7 +47,6 @@ import com.example.ui.engines.EmbeddedWebGameEngine
 import com.example.ui.engines.FlappyBirdGame
 import com.example.ui.engines.FluxCircuitGame
 import com.example.ui.engines.HanoiVaultGame
-import com.example.ui.engines.HillClimbGame
 import com.example.ui.engines.LumenToggleGame
 import com.example.ui.engines.NonoGridGame
 import com.example.ui.engines.Prism2048Game
@@ -154,7 +153,6 @@ fun GameContainerScreen(
                 onAwardXp = callback,
               )
             "flappy_bird" -> FlappyBirdGame(onAwardXp = callback)
-            "hill_climb" -> HillClimbGame(leftHandedHud = leftHanded, onAwardXp = callback)
             else -> FlappyBirdGame(onAwardXp = callback)
           }
         }

@@ -25,9 +25,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Undo
+import androidx.compose.material.icons.rounded.Group
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.SmartToy
+import androidx.compose.material.icons.rounded.SwapVert
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -60,6 +62,8 @@ fun VaultChessGame(
   onAwardXp: (Int, Int?, String?) -> Unit,
   modifier: Modifier = Modifier,
 ) {
+  var friendMode by remember { mutableStateOf(false) }
+  var autoFlipBoard by remember { mutableStateOf(false) }
   var selectedElo by remember { mutableIntStateOf(100) }
   var chessState by remember { mutableStateOf(ChessState.initial()) }
   val history = remember { mutableStateListOf<ChessState>() }
@@ -70,49 +74,78 @@ fun VaultChessGame(
 
   val activePreset = CHESS_ELO_PRESETS.first { it.elo == selectedElo }
   val gameStatus = remember(chessState) { ChessRules.evaluateStatus(chessState) }
-  val legalForWhite =
-    remember(chessState) {
-      if (chessState.turn == ChessColor.WHITE && gameStatus == ChessGameStatus.IN_PROGRESS) {
-        ChessRules.legalMoves(chessState, ChessColor.WHITE)
+  val activeTurn = chessState.turn
+  val legalMovesForActiveSide =
+    remember(chessState, friendMode) {
+      if (gameStatus == ChessGameStatus.IN_PROGRESS && (friendMode || chessState.turn == ChessColor.WHITE)) {
+        ChessRules.legalMoves(chessState, chessState.turn)
       } else {
         emptyList()
       }
     }
 
   val highlightedTargets =
-    remember(selectedSquare, legalForWhite) {
+    remember(selectedSquare, legalMovesForActiveSide) {
       val sel = selectedSquare
       if (sel == null) emptyMap()
-      else legalForWhite.filter { it.fromRow == sel.first && it.fromCol == sel.second }.associateBy { it.toRow to it.toCol }
+      else legalMovesForActiveSide.filter { it.fromRow == sel.first && it.fromCol == sel.second }.associateBy { it.toRow to it.toCol }
     }
 
+  fun resetBoard(isFriend: Boolean = friendMode, elo: Int = selectedElo) {
+    chessState = ChessState.initial()
+    history.clear()
+    selectedSquare = null
+    botThinking = false
+    rewardPaidForGame = false
+    statusText =
+      if (isFriend) "Pass & Play · White to move"
+      else "Your turn (White) · Bot set to $elo Elo"
+  }
+
   // Handle Game Over Rewards
-  LaunchedEffect(gameStatus) {
+  LaunchedEffect(gameStatus, friendMode) {
     if (gameStatus != ChessGameStatus.IN_PROGRESS && !rewardPaidForGame) {
       rewardPaidForGame = true
-      when (gameStatus) {
-        ChessGameStatus.WHITE_WINS_CHECKMATE -> {
-          val xp = 120 + (selectedElo / 2)
-          val score = 500 + selectedElo * 2
-          val ach = if (selectedElo >= 800) "chess_800_super" else "chess_100_win"
-          statusText = "CHECKMATE! You defeated the $selectedElo Elo bot! (+$xp XP)"
-          onAwardXp(xp, score, ach)
+      if (friendMode) {
+        when (gameStatus) {
+          ChessGameStatus.WHITE_WINS_CHECKMATE -> {
+            statusText = "CHECKMATE! White wins the 2P Friend match! (+90 XP)"
+            onAwardXp(90, 450, null)
+          }
+          ChessGameStatus.BLACK_WINS_CHECKMATE -> {
+            statusText = "CHECKMATE! Black wins the 2P Friend match! (+90 XP)"
+            onAwardXp(90, 450, null)
+          }
+          else -> {
+            statusText = "2P Match Draw! (+50 XP)"
+            onAwardXp(50, 220, null)
+          }
         }
-        ChessGameStatus.BLACK_WINS_CHECKMATE -> {
-          statusText = "Checkmate — $selectedElo Elo Bot wins. (+25 XP for practice)"
-          onAwardXp(25, 100, null)
-        }
-        else -> {
-          statusText = "Draw! (+50 XP)"
-          onAwardXp(50, 250 + selectedElo / 2, null)
+      } else {
+        when (gameStatus) {
+          ChessGameStatus.WHITE_WINS_CHECKMATE -> {
+            val xp = 120 + (selectedElo / 2)
+            val score = 500 + selectedElo * 2
+            val ach = if (selectedElo >= 800) "chess_800_super" else "chess_100_win"
+            statusText = "CHECKMATE! You defeated the $selectedElo Elo bot! (+$xp XP)"
+            onAwardXp(xp, score, ach)
+          }
+          ChessGameStatus.BLACK_WINS_CHECKMATE -> {
+            statusText = "Checkmate — $selectedElo Elo Bot wins. (+25 XP for practice)"
+            onAwardXp(25, 100, null)
+          }
+          else -> {
+            statusText = "Draw! (+50 XP)"
+            onAwardXp(50, 250 + selectedElo / 2, null)
+          }
         }
       }
     }
   }
 
-  // Bot Turn Execution on Background Thread
-  LaunchedEffect(chessState, gameStatus, selectedElo) {
-    if (chessState.turn == ChessColor.BLACK && gameStatus == ChessGameStatus.IN_PROGRESS) {
+  // Bot Turn Execution on Background Thread (only in AI Bot mode)
+  LaunchedEffect(chessState, gameStatus, selectedElo, friendMode) {
+    if (!friendMode && chessState.turn == ChessColor.BLACK && gameStatus == ChessGameStatus.IN_PROGRESS) {
       botThinking = true
       statusText = "$selectedElo Elo Bot thinking..."
       val botMove =
@@ -130,77 +163,126 @@ fun VaultChessGame(
     }
   }
 
-  fun resetBoard(elo: Int = selectedElo) {
-    chessState = ChessState.initial()
-    history.clear()
-    selectedSquare = null
-    botThinking = false
-    rewardPaidForGame = false
-    statusText = "Your turn (White) · Bot set to $elo Elo"
-  }
-
   Column(
     modifier = modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(14.dp),
     horizontalAlignment = Alignment.CenterHorizontally,
     verticalArrangement = Arrangement.spacedBy(10.dp),
   ) {
-    // Elo Selector Strip (100 - 1000 Elo, 100 unlocked at start, 200-700 lower ranks, 800+ super ranks)
-    Surface(
-      shape = MaterialTheme.shapes.medium,
-      color = MaterialTheme.colorScheme.surface,
-      border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    // Mode Switcher: AI Bot vs Play with Friend
+    Row(
       modifier = Modifier.fillMaxWidth().widthIn(max = 460.dp),
+      horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-      Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+      FilterChip(
+        selected = !friendMode,
+        onClick = {
+          if (friendMode) {
+            friendMode = false
+            resetBoard(isFriend = false)
+          }
+        },
+        leadingIcon = { Icon(Icons.Rounded.SmartToy, contentDescription = null, modifier = Modifier.size(16.dp)) },
+        label = { Text("VS AI BOT") },
+        modifier = Modifier.weight(1f).testTag("chess_mode_ai"),
+      )
+      FilterChip(
+        selected = friendMode,
+        onClick = {
+          if (!friendMode) {
+            friendMode = true
+            resetBoard(isFriend = true)
+          }
+        },
+        leadingIcon = { Icon(Icons.Rounded.Group, contentDescription = null, modifier = Modifier.size(16.dp)) },
+        label = { Text("PLAY WITH FRIEND") },
+        modifier = Modifier.weight(1f).testTag("chess_mode_friend"),
+      )
+    }
+
+    if (!friendMode) {
+      // Elo Selector Strip (100 - 1000 Elo, 100 unlocked at start, 200-700 lower ranks, 800+ super ranks)
+      Surface(
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = Modifier.fillMaxWidth().widthIn(max = 460.dp),
+      ) {
+        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+          ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+              Icon(Icons.Rounded.SmartToy, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+              Text("AI BOT RATING · ${activePreset.label}", style = MaterialTheme.typography.labelLarge)
+            }
+            Text(
+              if (selectedElo >= 800) "SUPER RANK" else activePreset.requiredTier.displayName.uppercase(),
+              style = MaterialTheme.typography.labelSmall,
+              color = MaterialTheme.colorScheme.primary,
+            )
+          }
+
+          LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            items(CHESS_ELO_PRESETS, key = { it.elo }) { preset ->
+              val unlocked = currentTier.levelIndex >= preset.requiredTier.levelIndex
+              val isSelected = selectedElo == preset.elo
+              FilterChip(
+                selected = isSelected,
+                onClick = {
+                  if (unlocked) {
+                    selectedElo = preset.elo
+                    statusText =
+                      if (chessState.turn == ChessColor.WHITE) "Bot switched to ${preset.elo} Elo"
+                      else statusText
+                  } else {
+                    statusText =
+                      "${preset.elo} Elo Bot requires ${preset.requiredTier.displayName} Rank (${preset.requiredTier.minXp} XP)!"
+                  }
+                },
+                leadingIcon = {
+                  if (!unlocked) {
+                    Icon(Icons.Rounded.Lock, contentDescription = "Locked", modifier = Modifier.size(14.dp))
+                  }
+                },
+                label = {
+                  Text(
+                    if (unlocked) "${preset.elo}" else "${preset.elo} (${preset.requiredTier.displayName})",
+                    style = MaterialTheme.typography.labelSmall,
+                  )
+                },
+                modifier = Modifier.testTag("chess_elo_${preset.elo}"),
+              )
+            }
+          }
+          Text(activePreset.description, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+      }
+    } else {
+      Surface(
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = Modifier.fillMaxWidth().widthIn(max = 460.dp),
+      ) {
         Row(
-          modifier = Modifier.fillMaxWidth(),
+          modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
           horizontalArrangement = Arrangement.SpaceBetween,
           verticalAlignment = Alignment.CenterVertically,
         ) {
-          Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Icon(Icons.Rounded.SmartToy, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-            Text("AI BOT RATING · ${activePreset.label}", style = MaterialTheme.typography.labelLarge)
+          Column(modifier = Modifier.weight(1f)) {
+            Text("2P PASS & PLAY · LOCAL DUEL", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+            Text("White & Black alternate moves on this device", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
           }
-          Text(
-            if (selectedElo >= 800) "SUPER RANK" else activePreset.requiredTier.displayName.uppercase(),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.primary,
+          FilterChip(
+            selected = autoFlipBoard,
+            onClick = { autoFlipBoard = !autoFlipBoard },
+            leadingIcon = { Icon(Icons.Rounded.SwapVert, contentDescription = null, modifier = Modifier.size(15.dp)) },
+            label = { Text("Flip Turn", style = MaterialTheme.typography.labelSmall) },
+            modifier = Modifier.testTag("chess_auto_flip"),
           )
         }
-
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-          items(CHESS_ELO_PRESETS, key = { it.elo }) { preset ->
-            val unlocked = currentTier.levelIndex >= preset.requiredTier.levelIndex
-            val isSelected = selectedElo == preset.elo
-            FilterChip(
-              selected = isSelected,
-              onClick = {
-                if (unlocked) {
-                  selectedElo = preset.elo
-                  statusText =
-                    if (chessState.turn == ChessColor.WHITE) "Bot switched to ${preset.elo} Elo"
-                    else statusText
-                } else {
-                  statusText =
-                    "${preset.elo} Elo Bot requires ${preset.requiredTier.displayName} Rank (${preset.requiredTier.minXp} XP)!"
-                }
-              },
-              leadingIcon = {
-                if (!unlocked) {
-                  Icon(Icons.Rounded.Lock, contentDescription = "Locked", modifier = Modifier.size(14.dp))
-                }
-              },
-              label = {
-                Text(
-                  if (unlocked) "${preset.elo}" else "${preset.elo} (${preset.requiredTier.displayName})",
-                  style = MaterialTheme.typography.labelSmall,
-                )
-              },
-              modifier = Modifier.testTag("chess_elo_${preset.elo}"),
-            )
-          }
-        }
-        Text(activePreset.description, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
       }
     }
 
@@ -220,9 +302,11 @@ fun VaultChessGame(
         OutlinedButton(
           onClick = {
             if (!botThinking && gameStatus == ChessGameStatus.IN_PROGRESS && history.isNotEmpty()) {
-              chessState = history.removeAt(history.lastIndex)
+              val prev = history.removeAt(history.lastIndex)
+              chessState = prev
               selectedSquare = null
-              statusText = "Move undone · Your turn"
+              val sideLabel = if (prev.turn == ChessColor.WHITE) "White" else "Black"
+              statusText = if (friendMode) "Move undone · $sideLabel to move" else "Move undone · Your turn"
             }
           },
           contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
@@ -240,6 +324,7 @@ fun VaultChessGame(
     }
 
     // 8x8 Chessboard
+    val flipForBlack = friendMode && autoFlipBoard && activeTurn == ChessColor.BLACK
     Surface(
       shape = MaterialTheme.shapes.medium,
       border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.outline),
@@ -248,10 +333,13 @@ fun VaultChessGame(
       val whiteInCheck = ChessRules.isInCheck(chessState, ChessColor.WHITE)
       val blackInCheck = ChessRules.isInCheck(chessState, ChessColor.BLACK)
 
+      val rowIndices = if (flipForBlack) (7 downTo 0) else (0..7)
+      val colIndices = if (flipForBlack) (7 downTo 0) else (0..7)
+
       Column(modifier = Modifier.fillMaxSize()) {
-        for (r in 0..7) {
+        for (r in rowIndices) {
           Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
-            for (c in 0..7) {
+            for (c in colIndices) {
               val piece = chessState.board[r][c]
               val isDark = (r + c) % 2 == 1
               val isSel = selectedSquare == (r to c)
@@ -274,6 +362,11 @@ fun VaultChessGame(
                   else -> Color(0xFFCAD4E0)
                 }
 
+              val canInteract =
+                !botThinking &&
+                  gameStatus == ChessGameStatus.IN_PROGRESS &&
+                  (friendMode || chessState.turn == ChessColor.WHITE)
+
               Box(
                 contentAlignment = Alignment.Center,
                 modifier =
@@ -281,12 +374,18 @@ fun VaultChessGame(
                     .weight(1f)
                     .fillMaxSize()
                     .background(squareBg)
-                    .clickable(enabled = !botThinking && gameStatus == ChessGameStatus.IN_PROGRESS && chessState.turn == ChessColor.WHITE) {
+                    .clickable(enabled = canInteract) {
                       if (targetMove != null) {
                         history.add(chessState)
-                        chessState = ChessRules.applyMove(chessState, targetMove)
+                        val next = ChessRules.applyMove(chessState, targetMove)
+                        chessState = next
                         selectedSquare = null
-                      } else if (piece != null && piece.color == ChessColor.WHITE) {
+                        if (friendMode && ChessRules.evaluateStatus(next) == ChessGameStatus.IN_PROGRESS) {
+                          val nextLabel = if (next.turn == ChessColor.WHITE) "White" else "Black"
+                          val inCheck = ChessRules.isInCheck(next, next.turn)
+                          statusText = if (inCheck) "Check! $nextLabel to move" else "Pass & Play · $nextLabel to move"
+                        }
+                      } else if (piece != null && piece.color == activeTurn) {
                         selectedSquare = if (isSel) null else (r to c)
                       } else {
                         selectedSquare = null

@@ -70,14 +70,6 @@ object VaultTrackCatalog {
         bassNotes = intArrayOf(43, 0, 55, 0, 43, 0, 55, 0, 48, 0, 52, 0, 50, 0, 43, 0),
       ),
       TrackBlueprint(
-        id = "hill_climb",
-        label = "Hill Climb · Canyon Groove",
-        bpm = 122,
-        wave = WaveForm.SAW,
-        melodyNotes = intArrayOf(64, 68, 71, 74, 71, 68, 64, 62, 64, 68, 71, 76, 74, 71, 69, 64),
-        bassNotes = intArrayOf(40, 47, 40, 47, 45, 52, 45, 52, 40, 47, 40, 47, 47, 54, 45, 40),
-      ),
-      TrackBlueprint(
         id = "vault_chess",
         label = "Vault Chess · Gambit Baroque",
         bpm = 88,

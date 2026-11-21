@@ -48,7 +48,7 @@ class ThemePreferencesRepository(private val context: Context) {
     }
 
   val creatorPinFlow: Flow<String> =
-    context.vaultDataStore.data.map { prefs -> prefs[Keys.CREATOR_PIN] ?: "2026" }
+    context.vaultDataStore.data.map { prefs -> prefs[Keys.CREATOR_PIN] ?: "2011" }
 
   suspend fun toggleDarkMode() {
     context.vaultDataStore.edit { prefs ->

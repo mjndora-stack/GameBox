@@ -312,7 +312,7 @@ fun VaultStudioScreen(
               onValueChange = { pinInput = it },
               singleLine = true,
               visualTransformation = PasswordVisualTransformation(),
-              label = { Text("Creator PIN (default: 2026)") },
+              label = { Text("Enter Creator PIN") },
               leadingIcon = { Icon(Icons.Rounded.Key, contentDescription = null) },
               modifier = Modifier.fillMaxWidth().testTag("creator_pin_input"),
             )
@@ -487,9 +487,12 @@ fun VaultStudioScreen(
       ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
           Text("Made by Chris Mjelo", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+          Text("TikTok: @latency55", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+          Text("Email: mjndora@gmail.com", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+          Spacer(Modifier.height(4.dp))
           Text(
             "VaultPlay · 100% Offline Curated Game Vault",
-            style = MaterialTheme.typography.bodyMedium,
+            style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
           )
         }

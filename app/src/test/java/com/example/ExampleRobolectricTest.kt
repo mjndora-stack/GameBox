@@ -5,15 +5,16 @@ import androidx.test.core.app.ApplicationProvider
 import com.example.audio.VaultTrackCatalog
 import com.example.data.local.VaultDatabase
 import com.example.data.model.FighterStat
-import com.example.data.model.FighterUpgradeLevels
 import com.example.data.model.PlayerTier
 import com.example.data.model.VaultPreferences
 import com.example.ui.engines.CHESS_ELO_PRESETS
 import com.example.ui.engines.ChessAiEngine
+import com.example.ui.engines.ChessColor
 import com.example.ui.engines.ChessRules
 import com.example.ui.engines.ChessState
 import com.example.ui.engines.STREET_FIGHTERS
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -26,10 +27,13 @@ import org.robolectric.annotation.Config
 class ExampleRobolectricTest {
 
   @Test
-  fun `app name matches VaultPlay`() {
+  fun `app name matches VaultPlay and creator pin is hidden from strings`() {
     val context = ApplicationProvider.getApplicationContext<Context>()
     val appName = context.getString(R.string.app_name)
     assertEquals("VaultPlay", appName)
+    val pinHint = context.getString(R.string.creator_pin_hint)
+    assertFalse(pinHint.contains("2011"))
+    assertFalse(pinHint.contains("2026"))
   }
 
   @Test
@@ -46,9 +50,9 @@ class ExampleRobolectricTest {
     assertEquals(PlayerTier.MYTHIC, PlayerTier.fromXp(25000))
 
     val games = VaultDatabase.defaultGames()
-    // 2 kept platformers + 3 new arcade (SF2D, Flappy, Hill Climb) + 12 puzzles + Vault Chess = 18 games
-    assertEquals(18, games.size)
-    assertEquals(18, games.map { it.id }.toSet().size)
+    // 2 kept platformers + 2 arcade (SF2D, Flappy) + 12 puzzles + Vault Chess = 17 games
+    assertEquals(17, games.size)
+    assertEquals(17, games.map { it.id }.toSet().size)
 
     // Kept platformers, Neon Hop marked Fan Favourite, and new games present
     val neon = games.first { it.id == "neon_hop" }
@@ -57,10 +61,9 @@ class ExampleRobolectricTest {
     assertTrue(games.any { it.id == "vault_chess" && it.requiredTier == PlayerTier.HOBBYIST.name })
     assertTrue(games.any { it.id == "street_fighter_2d" && it.requiredTier == PlayerTier.HOBBYIST.name })
     assertTrue(games.any { it.id == "flappy_bird" && it.requiredTier == PlayerTier.HOBBYIST.name })
-    assertTrue(games.any { it.id == "hill_climb" && it.requiredTier == PlayerTier.HOBBYIST.name })
 
-    // Removed legacy titles
-    assertTrue(games.none { it.id in setOf("ash_cipher", "crypt_echoes", "apex_vector", "vice_horizon") })
+    // Removed titles including Hill Climb Racing
+    assertTrue(games.none { it.id in setOf("hill_climb", "ash_cipher", "crypt_echoes", "apex_vector", "vice_horizon") })
 
     // Exactly 4 locked library games, each requiring a distinct rank
     val lockedGames = games.filter { it.requiredTier != PlayerTier.HOBBYIST.name }
@@ -93,7 +96,7 @@ class ExampleRobolectricTest {
   }
 
   @Test
-  fun `chess elo presets unlock 100 at start, lower ranks for 200-700, and super ranks for 800+`() {
+  fun `chess elo presets and 2P white plus black legal moves work cleanly`() {
     assertEquals(10, CHESS_ELO_PRESETS.size)
     assertEquals(100, CHESS_ELO_PRESETS.first().elo)
     assertEquals(1000, CHESS_ELO_PRESETS.last().elo)
@@ -112,8 +115,8 @@ class ExampleRobolectricTest {
     assertTrue(superElo.all { it.requiredTier.levelIndex >= PlayerTier.VIRTUOSO.levelIndex })
 
     val initial = ChessState.initial()
-    val openingMoves = ChessRules.legalMoves(initial)
-    assertEquals(20, openingMoves.size)
+    assertEquals(20, ChessRules.legalMoves(initial, ChessColor.WHITE).size)
+    assertEquals(20, ChessRules.legalMoves(initial, ChessColor.BLACK).size)
     assertNotNull(ChessAiEngine.chooseMove(initial, 100))
     assertNotNull(ChessAiEngine.chooseMove(initial, 1000))
   }

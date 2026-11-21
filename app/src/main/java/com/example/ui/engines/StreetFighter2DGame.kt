@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -22,10 +21,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.automirrored.rounded.ArrowForward
-import androidx.compose.material.icons.rounded.Bolt
-import androidx.compose.material.icons.rounded.Shield
+import androidx.compose.material.icons.rounded.Group
+import androidx.compose.material.icons.rounded.SmartToy
 import androidx.compose.material.icons.rounded.SportsMma
 import androidx.compose.material.icons.rounded.Upgrade
 import androidx.compose.material3.Button
@@ -55,7 +52,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.data.model.FighterStat
 import com.example.data.model.FighterUpgradeLevels
@@ -150,30 +146,39 @@ fun StreetFighter2DGame(
   onAwardXp: (Int, Int?, String?) -> Unit,
   modifier: Modifier = Modifier,
 ) {
+  var friendMode by remember { mutableStateOf(false) }
   var selectedFighterId by remember { mutableStateOf("kai") }
+  var p2FighterId by remember { mutableStateOf("mira") }
   var inArena by remember { mutableStateOf(false) }
 
   if (!inArena) {
     FighterSelectAndUpgradeScreen(
+      friendMode = friendMode,
       selectedFighterId = selectedFighterId,
+      p2FighterId = p2FighterId,
       vaultCredits = vaultCredits,
       fighterUpgrades = fighterUpgrades,
+      onToggleFriendMode = { friendMode = it },
       onSelectFighter = { selectedFighterId = it },
+      onSelectP2Fighter = { p2FighterId = it },
       onUpgradeStat = onUpgradeStat,
       onStartFight = { inArena = true },
       modifier = modifier,
     )
   } else {
     val playerArch = STREET_FIGHTERS.first { it.id == selectedFighterId }
-    val enemyArch = remember(selectedFighterId) {
-      STREET_FIGHTERS.first { it.id != selectedFighterId }
-    }
+    val enemyArch =
+      if (friendMode) STREET_FIGHTERS.first { it.id == p2FighterId }
+      else remember(selectedFighterId) { STREET_FIGHTERS.first { it.id != selectedFighterId } }
     val upgrades = fighterUpgrades[selectedFighterId] ?: FighterUpgradeLevels()
+    val p2Upgrades = fighterUpgrades[p2FighterId] ?: FighterUpgradeLevels()
 
     StreetFighterArena(
+      friendMode = friendMode,
       playerArch = playerArch,
       enemyArch = enemyArch,
       upgrades = upgrades,
+      p2Upgrades = p2Upgrades,
       leftHandedHud = leftHandedHud,
       onAwardXp = onAwardXp,
       onExitToArmory = { inArena = false },
@@ -184,10 +189,14 @@ fun StreetFighter2DGame(
 
 @Composable
 private fun FighterSelectAndUpgradeScreen(
+  friendMode: Boolean,
   selectedFighterId: String,
+  p2FighterId: String,
   vaultCredits: Int,
   fighterUpgrades: Map<String, FighterUpgradeLevels>,
+  onToggleFriendMode: (Boolean) -> Unit,
   onSelectFighter: (String) -> Unit,
+  onSelectP2Fighter: (String) -> Unit,
   onUpgradeStat: (String, FighterStat, Int) -> Unit,
   onStartFight: () -> Unit,
   modifier: Modifier = Modifier,
@@ -205,7 +214,7 @@ private fun FighterSelectAndUpgradeScreen(
       horizontalArrangement = Arrangement.SpaceBetween,
       verticalAlignment = Alignment.CenterVertically,
     ) {
-      Column {
+      Column(modifier = Modifier.weight(1f)) {
         Text("STREET FIGHTER 2D", style = MaterialTheme.typography.titleLarge)
         Text("Select & upgrade your fighter with Vault Credits", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
       }
@@ -219,6 +228,28 @@ private fun FighterSelectAndUpgradeScreen(
       }
     }
 
+    // Mode Selector: VS AI CPU or Play with Friend (2P)
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth().widthIn(max = 460.dp)) {
+      FilterChip(
+        selected = !friendMode,
+        onClick = { onToggleFriendMode(false) },
+        leadingIcon = { Icon(Icons.Rounded.SmartToy, contentDescription = null, modifier = Modifier.size(16.dp)) },
+        label = { Text("VS AI CPU") },
+        modifier = Modifier.weight(1f).testTag("sf_mode_ai"),
+      )
+      FilterChip(
+        selected = friendMode,
+        onClick = { onToggleFriendMode(true) },
+        leadingIcon = { Icon(Icons.Rounded.Group, contentDescription = null, modifier = Modifier.size(16.dp)) },
+        label = { Text("PLAY WITH FRIEND (2P)") },
+        modifier = Modifier.weight(1f).testTag("sf_mode_friend"),
+      )
+    }
+
+    if (friendMode) {
+      Text("PLAYER 1 FIGHTER (BOTTOM CONTROLS)", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+    }
+
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth().widthIn(max = 460.dp)) {
       STREET_FIGHTERS.forEach { arch ->
         FilterChip(
@@ -227,6 +258,20 @@ private fun FighterSelectAndUpgradeScreen(
           label = { Text("${arch.name} · ${arch.title}") },
           modifier = Modifier.weight(1f).testTag("sf_pick_${arch.id}"),
         )
+      }
+    }
+
+    if (friendMode) {
+      Text("PLAYER 2 FIGHTER (TOP CONTROLS)", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.secondary)
+      Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth().widthIn(max = 460.dp)) {
+        STREET_FIGHTERS.forEach { arch ->
+          FilterChip(
+            selected = p2FighterId == arch.id,
+            onClick = { onSelectP2Fighter(arch.id) },
+            label = { Text("${arch.name} · ${arch.title}") },
+            modifier = Modifier.weight(1f).testTag("sf_p2_pick_${arch.id}"),
+          )
+        }
       }
     }
 
@@ -288,7 +333,7 @@ private fun FighterSelectAndUpgradeScreen(
     ) {
       Icon(Icons.Rounded.SportsMma, contentDescription = null)
       Spacer(Modifier.size(8.dp))
-      Text("ENTER ARENA · BEST OF 3")
+      Text(if (friendMode) "START 2P FRIEND DUEL · BEST OF 3" else "ENTER ARENA · BEST OF 3")
     }
   }
 }
@@ -338,9 +383,11 @@ private fun UpgradeStatRow(
 
 @Composable
 private fun StreetFighterArena(
+  friendMode: Boolean,
   playerArch: FighterArchetype,
   enemyArch: FighterArchetype,
   upgrades: FighterUpgradeLevels,
+  p2Upgrades: FighterUpgradeLevels,
   leftHandedHud: Boolean,
   onAwardXp: (Int, Int?, String?) -> Unit,
   onExitToArmory: () -> Unit,
@@ -349,6 +396,10 @@ private fun StreetFighterArena(
   val playerMaxHp = (playerArch.baseHp + (upgrades.healthLevel - 1) * 18).toFloat()
   val playerAtkMul = 1f + (upgrades.attackLevel - 1) * 0.18f
   val playerSpdMul = 1f + (upgrades.speedLevel - 1) * 0.10f
+
+  val p2MaxHp = (enemyArch.baseHp + (p2Upgrades.healthLevel - 1) * 18).toFloat()
+  val p2AtkMul = 1f + (p2Upgrades.attackLevel - 1) * 0.18f
+  val p2SpdMul = 1f + (p2Upgrades.speedLevel - 1) * 0.10f
 
   var playerWins by remember { mutableIntStateOf(0) }
   var enemyWins by remember { mutableIntStateOf(0) }
@@ -369,16 +420,29 @@ private fun StreetFighterArena(
     )
 
   fun initialEnemy(round: Int): ArenaFighterState {
-    val hp = (enemyArch.baseHp + (round - 1) * 14).toFloat()
-    return ArenaFighterState(
-      archetype = enemyArch,
-      x = 780f,
-      y = 0f,
-      facing = -1,
-      hp = hp,
-      maxHp = hp,
-      atkMul = 0.9f + (round - 1) * 0.12f,
-    )
+    return if (friendMode) {
+      ArenaFighterState(
+        archetype = enemyArch,
+        x = 780f,
+        y = 0f,
+        facing = -1,
+        hp = p2MaxHp,
+        maxHp = p2MaxHp,
+        speedMul = p2SpdMul,
+        atkMul = p2AtkMul,
+      )
+    } else {
+      val hp = (enemyArch.baseHp + (round - 1) * 14).toFloat()
+      ArenaFighterState(
+        archetype = enemyArch,
+        x = 780f,
+        y = 0f,
+        facing = -1,
+        hp = hp,
+        maxHp = hp,
+        atkMul = 0.9f + (round - 1) * 0.12f,
+      )
+    }
   }
 
   var pState by remember { mutableStateOf(initialPlayer()) }
@@ -386,9 +450,16 @@ private fun StreetFighterArena(
   val projectiles = remember { mutableStateListOf<ArenaProjectile>() }
   val sparks = remember { mutableStateListOf<HitSpark>() }
 
+  // P1 Hold Controls
   var holdLeft by remember { mutableStateOf(false) }
   var holdRight by remember { mutableStateOf(false) }
   var holdBlock by remember { mutableStateOf(false) }
+
+  // P2 Hold Controls (Friend Mode)
+  var p2HoldLeft by remember { mutableStateOf(false) }
+  var p2HoldRight by remember { mutableStateOf(false) }
+  var p2HoldBlock by remember { mutableStateOf(false) }
+
   var aiDecisionTimer by remember { mutableStateOf(0.25f) }
   var aiDesiredDir by remember { mutableIntStateOf(-1) }
   var roundPauseTimer by remember { mutableStateOf(0f) }
@@ -406,10 +477,11 @@ private fun StreetFighterArena(
     matchBanner = "ROUND 1 · FIGHT!"
   }
 
-  fun triggerPlayerAction(move: MoveAction) {
+  fun triggerFighterAction(isPlayerOne: Boolean, move: MoveAction) {
     if (matchOver || roundPauseTimer > 0f) return
-    if (pState.action != MoveAction.IDLE) return
-    if (move == MoveAction.SPECIAL && pState.meter < 50f) return
+    val current = if (isPlayerOne) pState else eState
+    if (current.action != MoveAction.IDLE) return
+    if (move == MoveAction.SPECIAL && current.meter < 50f) return
     val dur =
       when (move) {
         MoveAction.PUNCH -> 0.22f
@@ -417,25 +489,27 @@ private fun StreetFighterArena(
         MoveAction.SPECIAL -> 0.36f
         else -> 0.25f
       }
-    if (move == MoveAction.SPECIAL) {
-      projectiles.add(
-        ArenaProjectile(
-          ownerIsPlayer = true,
-          x = pState.x + pState.facing * 42f,
-          y = -58f + pState.y,
-          vx = pState.facing * 520f,
-          damage = pState.archetype.baseDamage * 1.9f * pState.atkMul,
-          color = pState.archetype.accentColor,
+    val updated =
+      if (move == MoveAction.SPECIAL) {
+        projectiles.add(
+          ArenaProjectile(
+            ownerIsPlayer = isPlayerOne,
+            x = current.x + current.facing * 42f,
+            y = -58f + current.y,
+            vx = current.facing * 520f,
+            damage = current.archetype.baseDamage * 1.9f * current.atkMul,
+            color = current.archetype.accentColor,
+          )
         )
-      )
-      pState = pState.copy(action = move, actionTimer = dur, meter = (pState.meter - 50f).coerceAtLeast(0f), hitAppliedThisSwing = true)
-    } else {
-      pState = pState.copy(action = move, actionTimer = dur, hitAppliedThisSwing = false)
-    }
+        current.copy(action = move, actionTimer = dur, meter = (current.meter - 50f).coerceAtLeast(0f), hitAppliedThisSwing = true)
+      } else {
+        current.copy(action = move, actionTimer = dur, hitAppliedThisSwing = false)
+      }
+    if (isPlayerOne) pState = updated else eState = updated
   }
 
   // 60fps Game Loop
-  LaunchedEffect(Unit) {
+  LaunchedEffect(friendMode) {
     var lastNanos = 0L
     while (true) {
       withFrameNanos { now ->
@@ -471,9 +545,14 @@ private fun StreetFighterArena(
 
         // Facing
         p = p.copy(facing = if (p.x <= e.x) 1 else -1, blocking = holdBlock && p.action == MoveAction.IDLE)
-        e = e.copy(facing = if (e.x >= p.x) -1 else 1)
+        e =
+          if (friendMode) {
+            e.copy(facing = if (e.x >= p.x) -1 else 1, blocking = p2HoldBlock && e.action == MoveAction.IDLE)
+          } else {
+            e.copy(facing = if (e.x >= p.x) -1 else 1)
+          }
 
-        // Player Movement & Gravity
+        // Player 1 Movement & Gravity
         val pVx =
           if (p.action == MoveAction.IDLE && !p.blocking) {
             when {
@@ -503,38 +582,52 @@ private fun StreetFighterArena(
           meter = (p.meter + dt * 6f * p.speedMul).coerceAtMost(100f),
         )
 
-        // Enemy AI
-        aiDecisionTimer -= dt
+        // Player 2 / Enemy Control
         val dist = abs(p.x - e.x)
-        if (aiDecisionTimer <= 0f && e.action == MoveAction.IDLE) {
-          aiDecisionTimer = 0.22f + Random.nextFloat() * 0.25f
-          val roll = Random.nextFloat()
-          if (dist < 95f) {
-            when {
-              roll < 0.35f -> e = e.copy(action = MoveAction.PUNCH, actionTimer = 0.24f, hitAppliedThisSwing = false, blocking = false)
-              roll < 0.62f -> e = e.copy(action = MoveAction.KICK, actionTimer = 0.32f, hitAppliedThisSwing = false, blocking = false)
-              roll < 0.80f -> e = e.copy(blocking = true)
-              else -> { aiDesiredDir = if (e.x < p.x) -1 else 1; e = e.copy(blocking = false) }
+        val eVx: Float
+        if (friendMode) {
+          eVx =
+            if (e.action == MoveAction.IDLE && !e.blocking) {
+              when {
+                p2HoldLeft && !p2HoldRight -> -e.archetype.baseSpeed * e.speedMul
+                p2HoldRight && !p2HoldLeft -> e.archetype.baseSpeed * e.speedMul
+                else -> 0f
+              }
+            } else {
+              0f
             }
-          } else if (e.meter >= 50f && dist > 180f && roll < 0.35f) {
-            projectiles.add(
-              ArenaProjectile(
-                ownerIsPlayer = false,
-                x = e.x + e.facing * 42f,
-                y = -58f + e.y,
-                vx = e.facing * 460f,
-                damage = e.archetype.baseDamage * 1.6f * e.atkMul,
-                color = e.archetype.accentColor,
+        } else {
+          aiDecisionTimer -= dt
+          if (aiDecisionTimer <= 0f && e.action == MoveAction.IDLE) {
+            aiDecisionTimer = 0.22f + Random.nextFloat() * 0.25f
+            val roll = Random.nextFloat()
+            if (dist < 95f) {
+              when {
+                roll < 0.35f -> e = e.copy(action = MoveAction.PUNCH, actionTimer = 0.24f, hitAppliedThisSwing = false, blocking = false)
+                roll < 0.62f -> e = e.copy(action = MoveAction.KICK, actionTimer = 0.32f, hitAppliedThisSwing = false, blocking = false)
+                roll < 0.80f -> e = e.copy(blocking = true)
+                else -> { aiDesiredDir = if (e.x < p.x) -1 else 1; e = e.copy(blocking = false) }
+              }
+            } else if (e.meter >= 50f && dist > 180f && roll < 0.35f) {
+              projectiles.add(
+                ArenaProjectile(
+                  ownerIsPlayer = false,
+                  x = e.x + e.facing * 42f,
+                  y = -58f + e.y,
+                  vx = e.facing * 460f,
+                  damage = e.archetype.baseDamage * 1.6f * e.atkMul,
+                  color = e.archetype.accentColor,
+                )
               )
-            )
-            e = e.copy(action = MoveAction.SPECIAL, actionTimer = 0.36f, meter = e.meter - 50f, hitAppliedThisSwing = true, blocking = false)
-          } else {
-            aiDesiredDir = if (e.x > p.x) -1 else 1
-            e = e.copy(blocking = false)
+              e = e.copy(action = MoveAction.SPECIAL, actionTimer = 0.36f, meter = e.meter - 50f, hitAppliedThisSwing = true, blocking = false)
+            } else {
+              aiDesiredDir = if (e.x > p.x) -1 else 1
+              e = e.copy(blocking = false)
+            }
           }
+          eVx = if (e.action == MoveAction.IDLE && !e.blocking && dist > 75f) aiDesiredDir * e.archetype.baseSpeed * 0.72f else 0f
         }
 
-        val eVx = if (e.action == MoveAction.IDLE && !e.blocking && dist > 75f) aiDesiredDir * e.archetype.baseSpeed * 0.72f else 0f
         var ey = e.y + e.vy * dt
         var eVy = e.vy + 1350f * dt
         if (ey >= 0f) { ey = 0f; eVy = 0f }
@@ -544,13 +637,14 @@ private fun StreetFighterArena(
           eAct = MoveAction.IDLE
           eTimer = 0f
         }
+        val meterGainRate = if (friendMode) 6f * e.speedMul else 5f
         e = e.copy(
           x = (e.x + eVx * dt).coerceIn(60f, 940f),
           y = ey,
           vy = eVy,
           action = eAct,
           actionTimer = eTimer,
-          meter = (e.meter + dt * 5f).coerceAtMost(100f),
+          meter = (e.meter + dt * meterGainRate).coerceAtMost(100f),
         )
 
         // Melee Hit Checks
@@ -619,20 +713,30 @@ private fun StreetFighterArena(
             playerWins++
             if (playerWins >= 2) {
               matchOver = true
-              val pts = (900 + p.hp.toInt() * 5 + roundNumber * 120)
-              matchBanner = "YOU WIN THE MATCH! (+220 XP · +44 CR)"
-              onAwardXp(220, pts, "sf_champion")
+              if (friendMode) {
+                matchBanner = "P1 (${p.archetype.name}) WINS 2P DUEL! (+100 XP)"
+                onAwardXp(100, 600, null)
+              } else {
+                val pts = (900 + p.hp.toInt() * 5 + roundNumber * 120)
+                matchBanner = "YOU WIN THE MATCH! (+220 XP · +44 CR)"
+                onAwardXp(220, pts, "sf_champion")
+              }
             } else {
               roundPauseTimer = 1.6f
               matchBanner = "KO! ${p.archetype.name} TAKES ROUND $roundNumber!"
-              onAwardXp(65, null, null)
+              onAwardXp(if (friendMode) 40 else 65, null, null)
             }
           } else {
             enemyWins++
             if (enemyWins >= 2) {
               matchOver = true
-              matchBanner = "DEFEATED BY ${e.archetype.name} (+40 XP Practice)"
-              onAwardXp(40, 250, null)
+              if (friendMode) {
+                matchBanner = "P2 (${e.archetype.name}) WINS 2P DUEL! (+100 XP)"
+                onAwardXp(100, 600, null)
+              } else {
+                matchBanner = "DEFEATED BY ${e.archetype.name} (+40 XP Practice)"
+                onAwardXp(40, 250, null)
+              }
             } else {
               roundPauseTimer = 1.6f
               matchBanner = "KO! ${e.archetype.name} TAKES ROUND $roundNumber!"
@@ -656,14 +760,22 @@ private fun StreetFighterArena(
       Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
           Column(modifier = Modifier.weight(1f)) {
-            Text("${pState.archetype.name} (${playerWins}/2)", style = MaterialTheme.typography.labelLarge, color = pState.archetype.primaryColor)
+            Text(
+              if (friendMode) "P1 · ${pState.archetype.name} (${playerWins}/2)" else "${pState.archetype.name} (${playerWins}/2)",
+              style = MaterialTheme.typography.labelLarge,
+              color = pState.archetype.primaryColor,
+            )
             LinearProgressIndicator(progress = { (pState.hp / pState.maxHp).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth().height(9.dp), color = pState.archetype.primaryColor)
             Spacer(Modifier.height(3.dp))
             LinearProgressIndicator(progress = { (pState.meter / 100f).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth().height(4.dp), color = Color(0xFFFFC857))
           }
           Text("VS", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 10.dp))
           Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.End) {
-            Text("${eState.archetype.name} (${enemyWins}/2)", style = MaterialTheme.typography.labelLarge, color = eState.archetype.primaryColor)
+            Text(
+              if (friendMode) "P2 · ${eState.archetype.name} (${enemyWins}/2)" else "${eState.archetype.name} (${enemyWins}/2)",
+              style = MaterialTheme.typography.labelLarge,
+              color = eState.archetype.primaryColor,
+            )
             LinearProgressIndicator(progress = { (eState.hp / eState.maxHp).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth().height(9.dp), color = eState.archetype.primaryColor)
             Spacer(Modifier.height(3.dp))
             LinearProgressIndicator(progress = { (eState.meter / 100f).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth().height(4.dp), color = Color(0xFFFFC857))
@@ -671,6 +783,23 @@ private fun StreetFighterArena(
         }
         Text(matchBanner, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
       }
+    }
+
+    // Player 2 Touch Control Deck (top of arena in 2P Friend Mode for comfortable shared screen play)
+    if (friendMode) {
+      FighterControlRow(
+        label = "P2 CONTROLS (${eState.archetype.name})",
+        leftHandedHud = leftHandedHud,
+        meter = eState.meter,
+        onHoldLeft = { p2HoldLeft = it },
+        onHoldRight = { p2HoldRight = it },
+        onHoldGuard = { p2HoldBlock = it },
+        onJump = { if (!matchOver && eState.y >= 0f) eState = eState.copy(vy = -560f) },
+        onPunch = { triggerFighterAction(false, MoveAction.PUNCH) },
+        onKick = { triggerFighterAction(false, MoveAction.KICK) },
+        onSpecial = { triggerFighterAction(false, MoveAction.SPECIAL) },
+        tagPrefix = "sf_p2",
+      )
     }
 
     // 2D Dojo Canvas
@@ -687,7 +816,7 @@ private fun StreetFighterArena(
         drawRect(Color(0xFF1C2331), Offset(0f, groundY), Size(size.width, size.height - groundY))
         drawLine(Color(0xFF4CE8C8).copy(alpha = 0.5f), Offset(0f, groundY), Offset(size.width, groundY), 4f)
 
-        fun drawFighter(f: ArenaFighterState) {
+        fun drawFighter(f: ArenaFighterState, isP2MirrorColor: Boolean = false) {
           val cx = f.x * sx
           val fy = groundY + f.y * (size.height / 500f)
           val bodyH = size.height * 0.26f
@@ -696,7 +825,10 @@ private fun StreetFighterArena(
           // Shadow
           drawOval(Color.Black.copy(alpha = 0.35f), Offset(cx - bodyW * 0.6f, groundY - 6f), Size(bodyW * 1.2f, 12f))
 
-          val tint = if (f.action == MoveAction.HURT) Color.White else f.archetype.primaryColor
+          val tint =
+            if (f.action == MoveAction.HURT) Color.White
+            else if (isP2MirrorColor) f.archetype.accentColor
+            else f.archetype.primaryColor
           // Torso
           drawRoundRect(tint, Offset(cx - bodyW / 2f, fy - bodyH * 0.72f), Size(bodyW, bodyH * 0.45f), CornerRadius(10f))
           // Legs
@@ -720,7 +852,7 @@ private fun StreetFighterArena(
         }
 
         drawFighter(pState)
-        drawFighter(eState)
+        drawFighter(eState, isP2MirrorColor = friendMode && pState.archetype.id == eState.archetype.id)
 
         // Projectiles
         projectiles.forEach { pr ->
@@ -747,39 +879,72 @@ private fun StreetFighterArena(
       }
     }
 
-    // Touch Controls Row
+    // Player 1 Touch Controls Row (bottom)
+    FighterControlRow(
+      label = if (friendMode) "P1 CONTROLS (${pState.archetype.name})" else null,
+      leftHandedHud = leftHandedHud,
+      meter = pState.meter,
+      onHoldLeft = { holdLeft = it },
+      onHoldRight = { holdRight = it },
+      onHoldGuard = { holdBlock = it },
+      onJump = { if (!matchOver && pState.y >= 0f) pState = pState.copy(vy = -560f) },
+      onPunch = { triggerFighterAction(true, MoveAction.PUNCH) },
+      onKick = { triggerFighterAction(true, MoveAction.KICK) },
+      onSpecial = { triggerFighterAction(true, MoveAction.SPECIAL) },
+      tagPrefix = "sf",
+    )
+  }
+}
+
+@Composable
+private fun FighterControlRow(
+  label: String?,
+  leftHandedHud: Boolean,
+  meter: Float,
+  onHoldLeft: (Boolean) -> Unit,
+  onHoldRight: (Boolean) -> Unit,
+  onHoldGuard: (Boolean) -> Unit,
+  onJump: () -> Unit,
+  onPunch: () -> Unit,
+  onKick: () -> Unit,
+  onSpecial: () -> Unit,
+  tagPrefix: String,
+) {
+  Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    if (label != null) {
+      Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
     val movePad: @Composable () -> Unit = {
-      Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-        HoldControlPad(label = "◀", onHoldChanged = { holdLeft = it }, tag = "sf_left")
-        HoldControlPad(label = "▶", onHoldChanged = { holdRight = it }, tag = "sf_right")
-        HoldControlPad(label = "GUARD", onHoldChanged = { holdBlock = it }, tag = "sf_guard")
+      Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+        HoldControlPad(label = "◀", onHoldChanged = onHoldLeft, tag = "${tagPrefix}_left")
+        HoldControlPad(label = "▶", onHoldChanged = onHoldRight, tag = "${tagPrefix}_right")
+        HoldControlPad(label = "GUARD", onHoldChanged = onHoldGuard, tag = "${tagPrefix}_guard")
       }
     }
 
     val actionPad: @Composable () -> Unit = {
-      Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+      Row(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
         OutlinedButton(
-          onClick = {
-            if (!matchOver && pState.y >= 0f) pState = pState.copy(vy = -560f)
-          },
-          contentPadding = PaddingValues(horizontal = 10.dp, vertical = 12.dp),
+          onClick = onJump,
+          contentPadding = PaddingValues(horizontal = 8.dp, vertical = 12.dp),
+          modifier = Modifier.testTag("${tagPrefix}_jump"),
         ) { Text("JUMP") }
         Button(
-          onClick = { triggerPlayerAction(MoveAction.PUNCH) },
-          contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
-          modifier = Modifier.testTag("sf_punch"),
+          onClick = onPunch,
+          contentPadding = PaddingValues(horizontal = 10.dp, vertical = 12.dp),
+          modifier = Modifier.testTag("${tagPrefix}_punch"),
         ) { Text("PUNCH") }
         Button(
-          onClick = { triggerPlayerAction(MoveAction.KICK) },
-          contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
-          modifier = Modifier.testTag("sf_kick"),
+          onClick = onKick,
+          contentPadding = PaddingValues(horizontal = 10.dp, vertical = 12.dp),
+          modifier = Modifier.testTag("${tagPrefix}_kick"),
         ) { Text("KICK") }
         Button(
-          onClick = { triggerPlayerAction(MoveAction.SPECIAL) },
-          enabled = pState.meter >= 50f,
+          onClick = onSpecial,
+          enabled = meter >= 50f,
           colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary),
-          contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
-          modifier = Modifier.testTag("sf_special"),
+          contentPadding = PaddingValues(horizontal = 10.dp, vertical = 12.dp),
+          modifier = Modifier.testTag("${tagPrefix}_special"),
         ) { Text("SP") }
       }
     }
@@ -828,7 +993,7 @@ private fun HoldControlPad(
         }
         .testTag(tag),
   ) {
-    Box(modifier = Modifier.padding(horizontal = 14.dp), contentAlignment = Alignment.Center) {
+    Box(modifier = Modifier.padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
       Text(label, style = MaterialTheme.typography.labelLarge)
     }
   }
