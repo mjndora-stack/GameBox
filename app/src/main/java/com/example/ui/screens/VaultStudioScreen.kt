@@ -476,6 +476,26 @@ fun VaultStudioScreen(
       }
     }
 
+    item {
+      Text("ABOUT", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+      Spacer(Modifier.height(8.dp))
+      Surface(
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = Modifier.fillMaxWidth().testTag("settings_about_card"),
+      ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+          Text("Made by Chris Mjelo", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+          Text(
+            "VaultPlay · 100% Offline Curated Game Vault",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        }
+      }
+    }
+
     item { Spacer(Modifier.height(16.dp)) }
   }
 }
