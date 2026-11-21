@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>Neon Hop</title>
+<style>
+  * { box-sizing: border-box; user-select: none; -webkit-user-select: none; touch-action: none; }
+  html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #0B0E14; color: #E8EEF5; font-family: system-ui, -apple-system, sans-serif; }
+  #wrap { position: relative; width: 100%; height: 100%; display: flex; flex-direction: column; }
+  canvas { width: 100%; height: 100%; display: block; }
+  .hud { position: absolute; top: 12px; left: 12px; right: 12px; display: flex; justify-content: space-between; pointer-events: none; font-family: monospace; font-size: 13px; }
+  .pill { background: rgba(16, 22, 32, 0.82); border: 1px solid rgba(72, 240, 210, 0.35); padding: 6px 10px; border-radius: 999px; letter-spacing: 0.5px; }
+  .controls { position: absolute; bottom: 16px; left: 14px; right: 14px; display: flex; justify-content: space-between; align-items: flex-end; pointer-events: none; }
+  .group { display: flex; gap: 10px; pointer-events: auto; }
+  .btn { width: 62px; height: 62px; border-radius: 16px; background: rgba(20, 28, 40, 0.78); border: 1.5px solid rgba(72, 240, 210, 0.45); color: #7CF7E1; font-size: 20px; font-weight: 700; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(4px); }
+  .btn:active, .btn.active { background: rgba(72, 240, 210, 0.28); transform: scale(0.95); }
+  .btn-jump { width: 76px; height: 64px; border-color: rgba(168, 255, 96, 0.65); color: #B8FF78; font-size: 14px; letter-spacing: 0.6px; }
+  #overlay { position: absolute; inset: 0; background: rgba(9, 12, 18, 0.82); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; text-align: center; padding: 24px; }
+  #overlay h1 { margin: 0; font-size: 28px; letter-spacing: 1px; color: #5CF2D6; }
+  #overlay p { margin: 0; max-width: 320px; font-size: 14px; color: #9FB0C4; line-height: 1.45; }
+  #startBtn { margin-top: 8px; padding: 12px 28px; border-radius: 999px; border: none; background: #5CF2D6; color: #071316; font-weight: 700; font-size: 15px; cursor: pointer; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="c"></canvas>
+  <div class="hud">
+    <div class="pill" id="stagePill">STAGE 1/3</div>
+    <div class="pill" id="scorePill">SCORE 0 · ORBS 0</div>
+    <div class="pill" id="livesPill">HP 3</div>
+  </div>
+  <div class="controls" id="touchControls">
+    <div class="group">
+      <button class="btn" id="btnLeft" aria-label="Move Left">◀</button>
+      <button class="btn" id="btnRight" aria-label="Move Right">▶</button>
+    </div>
+    <div class="group">
+      <button class="btn btn-jump" id="btnJump" aria-label="Jump">JUMP</button>
+    </div>
+  </div>
+  <div id="overlay">
+    <h1>NEON HOP</h1>
+    <p>Precision cyber-platformer. Collect energy orbs, ride moving bridges, dodge plasma spikes, and reach the emerald beacon.</p>
+    <p style="font-size:12px;color:#6E8299;">Supports Touch &amp; Keyboard (A/D or Arrows + Space)</p>
+    <button id="startBtn">LAUNCH STAGE 1</button>
+  </div>
+</div>
+<script>
+(() => {
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+  const stagePill = document.getElementById('stagePill');
+  const scorePill = document.getElementById('scorePill');
+  const livesPill = document.getElementById('livesPill');
+  const overlay = document.getElementById('overlay');
+  const startBtn = document.getElementById('startBtn');
+
+  let W = 800, H = 480;
+  function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    W = window.innerWidth; H = window.innerHeight;
+    canvas.width = W * dpr; canvas.height = H * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  const keys = { left: false, right: false, jump: false };
+  let jumpPressedEdge = false;
+
+  function bindBtn(id, key) {
+    const el = document.getElementById(id);
+    const down = (e) => { e.preventDefault(); if (key === 'jump' && !keys.jump) jumpPressedEdge = true; keys[key] = true; el.classList.add('active'); };
+    const up = (e) => { e.preventDefault(); keys[key] = false; el.classList.remove('active'); };
+    el.addEventListener('pointerdown', down);
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
+    el.addEventListener('pointerleave', up);
+  }
+  bindBtn('btnLeft', 'left');
+  bindBtn('btnRight', 'right');
+  bindBtn('btnJump', 'jump');
+
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = true;
+    if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = true;
+    if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') {
+      if (!keys.jump) jumpPressedEdge = true;
+      keys.jump = true;
+    }
+  });
+  window.addEventListener('keyup', (e) => {
+    if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = false;
+    if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = false;
+    if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') keys.jump = false;
+  });
+
+  const STAGES = [
+    {
+      spawn: [60, 260],
+      goal: [1520, 160],
+      platforms: [
+        { x: 0, y: 340, w: 260, h: 24 },
+        { x: 310, y: 300, w: 150, h: 18 },
+        { x: 520, y: 250, w: 140, h: 18, vx: 70, minX: 490, maxX: 640 },
+        { x: 740, y: 290, w: 190, h: 20 },
+        { x: 990, y: 240, w: 150, h: 18 },
+        { x: 1190, y: 190, w: 130, h: 18, vy: 55, minY: 160, maxY: 270 },
+        { x: 1380, y: 210, w: 220, h: 24 }
+      ],
+      spikes: [
+        { x: 810, y: 274, w: 40, h: 16 },
+        { x: 1050, y: 224, w: 32, h: 16 }
+      ],
+      orbs: [
+        [170, 290], [380, 250], [585, 200], [830, 220], [1065, 175], [1255, 130], [1450, 165]
+      ]
+    },
+    {
+      spawn: [50, 300],
+      goal: [1760, 130],
+      platforms: [
+        { x: 0, y: 360, w: 200, h: 24 },
+        { x: 250, y: 315, w: 120, h: 18 },
+        { x: 430, y: 270, w: 110, h: 18, vx: 95, minX: 410, maxX: 590 },
+        { x: 670, y: 225, w: 130, h: 18 },
+        { x: 860, y: 290, w: 210, h: 20 },
+        { x: 1130, y: 250, w: 110, h: 18, vy: 75, minY: 160, maxY: 290 },
+        { x: 1310, y: 195, w: 160, h: 18 },
+        { x: 1530, y: 175, w: 290, h: 24 }
+      ],
+      spikes: [
+        { x: 920, y: 274, w: 42, h: 16 },
+        { x: 990, y: 274, w: 34, h: 16 },
+        { x: 1380, y: 179, w: 36, h: 16 }
+      ],
+      orbs: [
+        [130, 315], [305, 265], [510, 210], [735, 175], [960, 215], [1185, 145], [1390, 125], [1640, 125]
+      ]
+    },
+    {
+      spawn: [50, 310],
+      goal: [1950, 120],
+      platforms: [
+        { x: 0, y: 370, w: 170, h: 24 },
+        { x: 230, y: 320, w: 100, h: 16, vx: 85, minX: 210, maxX: 330 },
+        { x: 440, y: 270, w: 110, h: 16 },
+        { x: 620, y: 220, w: 100, h: 16, vy: 85, minY: 150, maxY: 280 },
+        { x: 800, y: 250, w: 200, h: 18 },
+        { x: 1070, y: 210, w: 110, h: 16, vx: 115, minX: 1040, maxX: 1230 },
+        { x: 1340, y: 180, w: 130, h: 16 },
+        { x: 1540, y: 230, w: 150, h: 18 },
+        { x: 1760, y: 170, w: 260, h: 24 }
+      ],
+      spikes: [
+        { x: 860, y: 234, w: 38, h: 16 },
+        { x: 930, y: 234, w: 38, h: 16 },
+        { x: 1600, y: 214, w: 42, h: 16 }
+      ],
+      orbs: [
+        [110, 320], [285, 260], [495, 220], [670, 145], [900, 175], [1150, 150], [1400, 130], [1615, 155], [1860, 120]
+      ]
+    }
+  ];
+
+  let running = false;
+  let stageIdx = 0;
+  let score = 0;
+  let totalOrbs = 0;
+  let hp = 3;
+  let camX = 0;
+  let player, platforms, spikes, orbs, goal, particles = [];
+
+  function bridgeAward(xp, pts, achId) {
+    try {
+      if (window.VaultBridge) {
+        if (xp > 0) window.VaultBridge.awardXp('neon_hop', xp);
+        if (pts > 0) window.VaultBridge.submitScore('neon_hop', pts);
+        if (achId) window.VaultBridge.unlockAchievement(achId);
+      }
+    } catch (_) {}
+  }
+
+  function loadStage(idx) {
+    const s = STAGES[idx];
+    platforms = s.platforms.map(p => ({ ...p, baseW: p.w }));
+    spikes = s.spikes.map(sp => ({ ...sp }));
+    orbs = s.orbs.map(([x, y]) => ({ x, y, collected: false, bob: Math.random() * 6 }));
+    goal = { x: s.goal[0], y: s.goal[1] };
+    player = { x: s.spawn[0], y: s.spawn[1], w: 24, h: 32, vx: 0, vy: 0, onGround: false, jumpsLeft: 2, invuln: 0 };
+    particles = [];
+    updateHud();
+  }
+
+  function updateHud() {
+    stagePill.textContent = `STAGE ${stageIdx + 1}/${STAGES.length}`;
+    scorePill.textContent = `SCORE ${score} · ORBS ${totalOrbs}`;
+    livesPill.textContent = `HP ${hp}`;
+  }
+
+  function spawnBurst(x, y, color, count = 10) {
+    for (let i = 0; i < count; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const sp = 60 + Math.random() * 140;
+      particles.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 0.45, maxLife: 0.45, color });
+    }
+  }
+
+  function hitPlayer() {
+    if (player.invuln > 0) return;
+    hp -= 1;
+    spawnBurst(player.x + 12, player.y + 16, '#FF5C7C', 14);
+    if (hp <= 0) {
+      running = false;
+      bridgeAward(20, score, null);
+      overlay.querySelector('h1').textContent = 'RUN ENDED';
+      overlay.querySelector('p').textContent = `Final Score: ${score} · Orbs Collected: ${totalOrbs}. Shared XP synced to your Vault.`;
+      startBtn.textContent = 'PLAY AGAIN';
+      overlay.style.display = 'flex';
+      stageIdx = 0; score = 0; totalOrbs = 0; hp = 3;
+      return;
+    }
+    const sp = STAGES[stageIdx].spawn;
+    player.x = sp[0]; player.y = sp[1]; player.vx = 0; player.vy = 0; player.invuln = 1.2;
+    updateHud();
+  }
+
+  let last = performance.now();
+  function loop(now) {
+    const dt = Math.min((now - last) / 1000, 0.035);
+    last = now;
+    if (running) update(dt);
+    render();
+    requestAnimationFrame(loop);
+  }
+
+  function update(dt) {
+    for (const p of platforms) {
+      p.dx = 0; p.dy = 0;
+      if (p.vx) {
+        const prev = p.x;
+        p.x += p.vx * dt;
+        if (p.x < p.minX) { p.x = p.minX; p.vx *= -1; }
+        if (p.x > p.maxX) { p.x = p.maxX; p.vx *= -1; }
+        p.dx = p.x - prev;
+      }
+      if (p.vy) {
+        const prev = p.y;
+        p.y += p.vy * dt;
+        if (p.y < p.minY) { p.y = p.minY; p.vy *= -1; }
+        if (p.y > p.maxY) { p.y = p.maxY; p.vy *= -1; }
+        p.dy = p.y - prev;
+      }
+    }
+
+    const moveSpeed = 245;
+    if (keys.left) player.vx = -moveSpeed;
+    else if (keys.right) player.vx = moveSpeed;
+    else player.vx *= 0.78;
+
+    if (jumpPressedEdge && player.jumpsLeft > 0) {
+      player.vy = -440;
+      player.jumpsLeft--;
+      player.onGround = false;
+      spawnBurst(player.x + 12, player.y + 30, '#5CF2D6', 6);
+    }
+    jumpPressedEdge = false;
+
+    player.vy += 1080 * dt;
+    if (player.vy > 680) player.vy = 680;
+
+    player.x += player.vx * dt;
+    if (player.x < 0) player.x = 0;
+
+    const prevBottom = player.y + player.h;
+    player.y += player.vy * dt;
+    player.onGround = false;
+
+    for (const p of platforms) {
+      if (player.x + player.w > p.x + 2 && player.x < p.x + p.w - 2) {
+        if (player.vy >= 0 && prevBottom <= p.y + 10 && player.y + player.h >= p.y) {
+          player.y = p.y - player.h;
+          player.vy = 0;
+          player.onGround = true;
+          player.jumpsLeft = 2;
+          player.x += (p.dx || 0);
+        }
+      }
+    }
+
+    if (player.invuln > 0) player.invuln -= dt;
+
+    if (player.y > 540) hitPlayer();
+
+    for (const s of spikes) {
+      if (player.x + player.w - 4 > s.x && player.x + 4 < s.x + s.w && player.y + player.h > s.y + 2 && player.y < s.y + s.h) {
+        hitPlayer();
+        break;
+      }
+    }
+
+    for (const o of orbs) {
+      o.bob += dt * 4;
+      if (!o.collected) {
+        const dx = (player.x + 12) - o.x;
+        const dy = (player.y + 16) - o.y;
+        if (dx * dx + dy * dy < 24 * 24) {
+          o.collected = true;
+          totalOrbs++;
+          score += 50;
+          spawnBurst(o.x, o.y, '#B8FF78', 10);
+          bridgeAward(15, score, totalOrbs >= 10 ? 'platform_pioneer' : null);
+          updateHud();
+        }
+      }
+    }
+
+    const gx = goal.x, gy = goal.y;
+    if (Math.abs((player.x + 12) - gx) < 28 && Math.abs((player.y + 16) - gy) < 36) {
+      score += 250;
+      bridgeAward(80, score, 'neon_finisher');
+      spawnBurst(gx, gy, '#5CF2D6', 20);
+      if (stageIdx + 1 < STAGES.length) {
+        stageIdx++;
+        loadStage(stageIdx);
+      } else {
+        running = false;
+        overlay.querySelector('h1').textContent = 'VAULT CLEARED!';
+        overlay.querySelector('p').textContent = `All 3 Neon Hop stages complete! Final Score: ${score}.`;
+        startBtn.textContent = 'PLAY AGAIN';
+        overlay.style.display = 'flex';
+        stageIdx = 0; score = 0; totalOrbs = 0; hp = 3;
+      }
+    }
+
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const pt = particles[i];
+      pt.x += pt.vx * dt; pt.y += pt.vy * dt; pt.life -= dt;
+      if (pt.life <= 0) particles.splice(i, 1);
+    }
+
+    const targetCam = Math.max(0, player.x - W * 0.35);
+    camX += (targetCam - camX) * 0.14;
+  }
+
+  function render() {
+    ctx.fillStyle = '#0B0E14';
+    ctx.fillRect(0, 0, W, H);
+
+    // Minimalist parallax grid
+    ctx.strokeStyle = 'rgba(92, 242, 214, 0.06)';
+    ctx.lineWidth = 1;
+    const gridOffset = -(camX * 0.35) % 48;
+    for (let x = gridOffset; x < W; x += 48) {
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+    }
+    for (let y = 0; y < H; y += 48) {
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+    }
+
+    if (!platforms) return;
+    const scaleY = H / 440;
+    ctx.save();
+    ctx.translate(-camX, Math.max(0, (H - 440) * 0.45));
+
+    // Platforms
+    for (const p of platforms) {
+      ctx.fillStyle = '#151D29';
+      ctx.fillRect(p.x, p.y, p.w, p.h);
+      ctx.fillStyle = p.vx || p.vy ? '#B8FF78' : '#5CF2D6';
+      ctx.fillRect(p.x, p.y, p.w, 3);
+    }
+
+    // Spikes
+    ctx.fillStyle = '#FF5C7C';
+    for (const s of spikes) {
+      const count = Math.max(2, Math.floor(s.w / 12));
+      const step = s.w / count;
+      for (let i = 0; i < count; i++) {
+        ctx.beginPath();
+        ctx.moveTo(s.x + i * step, s.y + s.h);
+        ctx.lineTo(s.x + i * step + step * 0.5, s.y);
+        ctx.lineTo(s.x + (i + 1) * step, s.y + s.h);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+
+    // Orbs
+    for (const o of orbs) {
+      if (o.collected) continue;
+      const oy = o.y + Math.sin(o.bob) * 4;
+      ctx.beginPath();
+      ctx.arc(o.x, oy, 8, 0, Math.PI * 2);
+      ctx.fillStyle = '#B8FF78';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(184, 255, 120, 0.35)';
+      ctx.lineWidth = 4;
+      ctx.stroke();
+    }
+
+    // Goal Beacon
+    ctx.fillStyle = 'rgba(92, 242, 214, 0.2)';
+    ctx.fillRect(goal.x - 16, goal.y - 36, 32, 64);
+    ctx.strokeStyle = '#5CF2D6';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(goal.x - 14, goal.y - 34, 28, 60);
+
+    // Player
+    if (!(player.invuln > 0 && Math.floor(player.invuln * 16) % 2 === 0)) {
+      ctx.fillStyle = '#E8EEF5';
+      ctx.fillRect(player.x, player.y, player.w, player.h);
+      ctx.fillStyle = '#5CF2D6';
+      ctx.fillRect(player.x + (player.vx >= 0 ? 14 : 4), player.y + 8, 6, 5);
+    }
+
+    // Particles
+    for (const pt of particles) {
+      ctx.globalAlpha = Math.max(0, pt.life / pt.maxLife);
+      ctx.fillStyle = pt.color;
+      ctx.fillRect(pt.x - 2, pt.y - 2, 4, 4);
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+
+  startBtn.addEventListener('click', () => {
+    overlay.style.display = 'none';
+    loadStage(stageIdx);
+    running = true;
+  });
+
+  loadStage(0);
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

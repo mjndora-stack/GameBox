@@ -1,0 +1,15 @@
+<resources>
+    <string name="app_name">VaultPlay</string>
+    <string name="tagline_offline">Offline Game Vault</string>
+    <string name="nav_library">Library</string>
+    <string name="nav_badges">Badges</string>
+    <string name="nav_ranks">Ranks</string>
+    <string name="nav_studio">Vault</string>
+    <string name="toggle_theme_cd">Toggle light or dark theme</string>
+    <string name="tier_hobbyist">Hobbyist</string>
+    <string name="tier_enthusiast">Enthusiast</string>
+    <string name="tier_expert">Expert</string>
+    <string name="tier_pro">Pro</string>
+    <string name="pro_locked_title">Pro Tier Required</string>
+    <string name="creator_pin_hint">Default Creator PIN: 2026</string>
+</resources>

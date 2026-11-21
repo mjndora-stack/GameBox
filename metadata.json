@@ -1,0 +1,6 @@
+{
+  "name": "VaultPlay",
+  "description": "An offline curated personal game vault with embedded 2D/3D game engines, shared XP progression, achievements, customizable themes, and local leaderboards.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
