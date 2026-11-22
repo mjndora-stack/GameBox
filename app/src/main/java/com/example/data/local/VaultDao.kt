@@ -103,6 +103,9 @@ interface VaultDao {
   @Query("UPDATE profiles SET equippedBadgeId = :badgeId WHERE id = :profileId")
   suspend fun equipProfileBadge(profileId: Long, badgeId: String?)
 
+  @Query("UPDATE profiles SET avatarIcon = :avatarIcon WHERE id = :profileId")
+  suspend fun updateProfileAvatar(profileId: Long, avatarIcon: String)
+
   // Daily Missions
   @Query("SELECT * FROM daily_missions WHERE dayKey = :dayKey ORDER BY bonusXp DESC, id ASC")
   fun observeDailyMissions(dayKey: String): Flow<List<DailyMissionEntity>>

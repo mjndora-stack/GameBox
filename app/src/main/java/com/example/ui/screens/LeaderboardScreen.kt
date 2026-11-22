@@ -40,10 +40,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
 import com.example.audio.VaultAudioEngine
 import com.example.data.local.CosmeticBadgeEntity
 import com.example.data.model.PlayerTier
 import com.example.ui.components.CosmeticBadgeEmblem
+import com.example.ui.components.UserAvatarImage
+import com.example.ui.components.VaultAvatarCatalog
 import com.example.ui.viewmodel.VaultUiState
 
 @Composable
@@ -56,6 +60,7 @@ fun LeaderboardScreen(
   var selectedGameId by remember { mutableStateOf("global_xp") }
   var showAddProfileDialog by remember { mutableStateOf(false) }
   var newProfileName by remember { mutableStateOf("") }
+  var newProfileAvatar by remember { mutableStateOf("cyber") }
 
   LazyColumn(
     modifier = modifier.fillMaxSize(),
@@ -91,7 +96,7 @@ fun LeaderboardScreen(
           FilterChip(
             selected = active,
             onClick = { VaultAudioEngine.playLobbyButtonSound(); onSwitchProfile(profile.id) },
-            leadingIcon = { Icon(Icons.Rounded.Person, contentDescription = null, modifier = Modifier.size(16.dp)) },
+            leadingIcon = { UserAvatarImage(avatarId = profile.avatarIcon, contentDescription = null, size = 20.dp) },
             label = { Text("${profile.name} (${profile.totalXp} XP)") },
             modifier = Modifier.testTag("profile_chip_${profile.id}"),
           )
@@ -137,6 +142,7 @@ fun LeaderboardScreen(
           isGhost = false,
           isCurrentPlayer = profile.id == uiState.activeProfile?.id,
           equippedBadge = equipped,
+          avatarId = profile.avatarIcon,
         )
       }
     } else {
@@ -192,13 +198,33 @@ fun LeaderboardScreen(
             label = { Text("Traveler Name") },
             modifier = Modifier.fillMaxWidth().testTag("new_traveler_input"),
           )
+          Text("Pick Avatar", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+          Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+            VaultAvatarCatalog.OPTIONS.forEach { option ->
+              val picked = newProfileAvatar == option.id
+              Surface(
+                shape = RoundedCornerShape(999.dp),
+                border = BorderStroke(
+                  if (picked) 2.dp else 1.dp,
+                  if (picked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                ),
+                modifier = Modifier.clickable { newProfileAvatar = option.id },
+              ) {
+                UserAvatarImage(
+                  avatarId = option.id,
+                  contentDescription = option.label,
+                  size = 44.dp,
+                )
+              }
+            }
+          }
         }
       },
       confirmButton = {
         Button(
           onClick = {
             if (newProfileName.isNotBlank()) {
-              onCreateProfile(newProfileName, "rocket")
+              onCreateProfile(newProfileName, newProfileAvatar)
               newProfileName = ""
               showAddProfileDialog = false
             }
@@ -224,6 +250,7 @@ private fun LeaderboardRowCard(
   isGhost: Boolean,
   isCurrentPlayer: Boolean,
   equippedBadge: CosmeticBadgeEntity? = null,
+  avatarId: String? = null,
 ) {
   Surface(
     shape = MaterialTheme.shapes.medium,
@@ -257,14 +284,17 @@ private fun LeaderboardRowCard(
           )
         }
       }
+      if (avatarId != null) {
+        UserAvatarImage(avatarId = avatarId, contentDescription = null, size = 34.dp)
+      }
       if (equippedBadge != null) {
         CosmeticBadgeEmblem(
           emblemKey = equippedBadge.emblemKey,
           accentColor = androidx.compose.ui.graphics.Color(equippedBadge.accentHex),
           unlocked = true,
-          size = 32.dp,
+          size = 30.dp,
         )
-      } else {
+      } else if (avatarId == null) {
         Icon(
           imageVector = if (isGhost) Icons.Rounded.SmartToy else Icons.Rounded.EmojiEvents,
           contentDescription = null,

@@ -3,6 +3,6 @@
     <item
         android:width="66dp"
         android:height="66dp"
-        android:drawable="@drawable/ic_vault_foreground"
+        android:drawable="@drawable/ic_vault2_foreground"
         android:gravity="center" />
 </layer-list>

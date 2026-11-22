@@ -24,16 +24,133 @@ data class TrackBlueprint(
   val bassNotes: IntArray, // MIDI note numbers matching melody length
 )
 
+data class LobbySongTheme(
+  val id: String,
+  val title: String,
+  val themeName: String,
+  val requiredTier: com.example.data.model.PlayerTier = com.example.data.model.PlayerTier.HOBBYIST,
+  val blueprint: TrackBlueprint,
+)
+
 object VaultTrackCatalog {
-  val LOBBY =
-    TrackBlueprint(
-      id = "lobby",
-      label = "Vault Lounge Synth",
-      bpm = 92,
-      wave = WaveForm.TRIANGLE,
-      melodyNotes = intArrayOf(60, 64, 67, 71, 67, 64, 69, 72, 57, 60, 64, 69, 64, 60, 62, 67),
-      bassNotes = intArrayOf(48, 0, 48, 0, 48, 0, 48, 0, 45, 0, 45, 0, 43, 0, 43, 0),
+  val LOBBY_SONGS: List<LobbySongTheme> =
+    listOf(
+      LobbySongTheme(
+        id = "lobby_lounge",
+        title = "Vault Lounge Synth",
+        themeName = "Neon Chill · Default",
+        requiredTier = com.example.data.model.PlayerTier.HOBBYIST,
+        blueprint =
+          TrackBlueprint(
+            id = "lobby_lounge",
+            label = "Vault Lounge Synth",
+            bpm = 92,
+            wave = WaveForm.TRIANGLE,
+            melodyNotes = intArrayOf(60, 64, 67, 71, 67, 64, 69, 72, 57, 60, 64, 69, 64, 60, 62, 67),
+            bassNotes = intArrayOf(48, 0, 48, 0, 48, 0, 48, 0, 45, 0, 45, 0, 43, 0, 43, 0),
+          ),
+      ),
+      LobbySongTheme(
+        id = "lobby_lofi",
+        title = "Rainy Cartridge",
+        themeName = "Lo-Fi · Warm Soft",
+        requiredTier = com.example.data.model.PlayerTier.HOBBYIST,
+        blueprint =
+          TrackBlueprint(
+            id = "lobby_lofi",
+            label = "Rainy Cartridge",
+            bpm = 76,
+            wave = WaveForm.SINE,
+            melodyNotes = intArrayOf(65, 69, 72, 0, 71, 69, 67, 0, 64, 67, 72, 0, 69, 67, 65, 0),
+            bassNotes = intArrayOf(41, 0, 0, 48, 43, 0, 0, 47, 45, 0, 0, 52, 41, 0, 43, 0),
+          ),
+      ),
+      LobbySongTheme(
+        id = "lobby_chiptune",
+        title = "8-Bit Sanctuary",
+        themeName = "Upbeat Arcade Chiptune",
+        requiredTier = com.example.data.model.PlayerTier.ENTHUSIAST,
+        blueprint =
+          TrackBlueprint(
+            id = "lobby_chiptune",
+            label = "8-Bit Sanctuary",
+            bpm = 124,
+            wave = WaveForm.SQUARE,
+            melodyNotes = intArrayOf(72, 76, 79, 76, 84, 0, 79, 76, 74, 77, 81, 79, 76, 74, 72, 0),
+            bassNotes = intArrayOf(48, 60, 48, 60, 45, 57, 45, 57, 41, 53, 43, 55, 48, 55, 48, 0),
+          ),
+      ),
+      LobbySongTheme(
+        id = "lobby_synthwave",
+        title = "Horizon 1986",
+        themeName = "Retro Synthwave",
+        requiredTier = com.example.data.model.PlayerTier.EXPERT,
+        blueprint =
+          TrackBlueprint(
+            id = "lobby_synthwave",
+            label = "Horizon 1986",
+            bpm = 108,
+            wave = WaveForm.SAW,
+            melodyNotes = intArrayOf(69, 72, 76, 72, 79, 76, 72, 76, 67, 71, 74, 71, 76, 74, 71, 67),
+            bassNotes = intArrayOf(45, 45, 45, 45, 41, 41, 41, 41, 48, 48, 48, 48, 43, 43, 43, 43),
+          ),
+      ),
+      LobbySongTheme(
+        id = "lobby_cyberpunk",
+        title = "Midnight Cypher",
+        themeName = "Cyberpunk · Bassline",
+        requiredTier = com.example.data.model.PlayerTier.PRO,
+        blueprint =
+          TrackBlueprint(
+            id = "lobby_cyberpunk",
+            label = "Midnight Cypher",
+            bpm = 116,
+            wave = WaveForm.SAW,
+            melodyNotes = intArrayOf(62, 0, 65, 69, 68, 0, 65, 64, 62, 0, 65, 72, 70, 69, 65, 64),
+            bassNotes = intArrayOf(38, 38, 50, 38, 41, 41, 53, 41, 43, 43, 55, 43, 40, 40, 52, 40),
+          ),
+      ),
+      LobbySongTheme(
+        id = "lobby_baroque",
+        title = "Marble Clockwork",
+        themeName = "Royal Manor · Classical",
+        requiredTier = com.example.data.model.PlayerTier.MASTER,
+        blueprint =
+          TrackBlueprint(
+            id = "lobby_baroque",
+            label = "Marble Clockwork",
+            bpm = 98,
+            wave = WaveForm.TRIANGLE,
+            melodyNotes = intArrayOf(67, 74, 71, 67, 72, 71, 69, 66, 67, 71, 74, 79, 76, 74, 72, 71),
+            bassNotes = intArrayOf(43, 0, 47, 0, 48, 0, 50, 0, 43, 0, 47, 0, 48, 50, 43, 0),
+          ),
+      ),
+      LobbySongTheme(
+        id = "lobby_zen",
+        title = "Jade Courtyard",
+        themeName = "Zen Pentatonic",
+        requiredTier = com.example.data.model.PlayerTier.VIRTUOSO,
+        blueprint =
+          TrackBlueprint(
+            id = "lobby_zen",
+            label = "Jade Courtyard",
+            bpm = 82,
+            wave = WaveForm.SINE,
+            melodyNotes = intArrayOf(62, 64, 67, 71, 74, 0, 71, 67, 64, 67, 71, 69, 67, 64, 62, 0),
+            bassNotes = intArrayOf(50, 0, 0, 0, 47, 0, 0, 0, 45, 0, 0, 0, 43, 0, 50, 0),
+          ),
+      ),
     )
+
+  val LOBBY: TrackBlueprint = LOBBY_SONGS.first().blueprint
+
+  fun lobbySongById(songId: String): LobbySongTheme =
+    LOBBY_SONGS.firstOrNull { it.id == songId } ?: LOBBY_SONGS.first()
+
+  fun isLobbySongUnlocked(songId: String, tier: com.example.data.model.PlayerTier): Boolean {
+    val song = lobbySongById(songId)
+    return tier.levelIndex >= song.requiredTier.levelIndex
+  }
 
   private val GAME_TRACKS: Map<String, TrackBlueprint> =
     listOf(
@@ -173,10 +290,19 @@ object VaultTrackCatalog {
         melodyNotes = intArrayOf(67, 70, 74, 78, 79, 74, 70, 74, 67, 72, 75, 79, 78, 74, 70, 66),
         bassNotes = intArrayOf(43, 0, 50, 0, 43, 0, 50, 0, 48, 0, 51, 0, 50, 0, 42, 0),
       ),
+      TrackBlueprint(
+        id = "block_blast",
+        label = "Block Blast · Neon Cubes",
+        bpm = 122,
+        wave = WaveForm.TRIANGLE,
+        melodyNotes = intArrayOf(64, 67, 71, 76, 74, 71, 69, 71, 64, 67, 72, 76, 79, 76, 74, 71),
+        bassNotes = intArrayOf(40, 0, 52, 0, 43, 0, 55, 0, 48, 0, 55, 0, 45, 0, 52, 0),
+      ),
     ).associateBy { it.id }
 
-  fun forKey(trackKey: String): TrackBlueprint =
-    if (trackKey == "lobby") LOBBY else GAME_TRACKS[trackKey] ?: GAME_TRACKS.getValue("neon_hop")
+  fun forKey(trackKey: String, lobbySongId: String = "lobby_lounge"): TrackBlueprint =
+    if (trackKey == "lobby") lobbySongById(lobbySongId).blueprint
+    else GAME_TRACKS[trackKey] ?: GAME_TRACKS.getValue("neon_hop")
 }
 
 enum class GameSfx {
@@ -188,6 +314,8 @@ enum class GameSfx {
   CHECKMATE,
   PICKUP,
   PUZZLE_STEP,
+  BLOCK_PLACE,
+  BLOCK_BLAST,
   VICTORY,
 }
 
@@ -195,6 +323,7 @@ object VaultAudioEngine {
   private const val SAMPLE_RATE = 22050
 
   private val currentTrackKey = MutableStateFlow("lobby")
+  @Volatile private var selectedLobbySongId = "lobby_lounge"
   @Volatile private var musicEnabled = true
   @Volatile private var lobbySfxEnabled = true
   @Volatile private var gameSfxEnabled = true
@@ -217,6 +346,8 @@ object VaultAudioEngine {
       GameSfx.CHECKMATE to synthesizeSequence(intArrayOf(67, 63, 60, 48), noteMs = 105, wave = WaveForm.SAW, gain = 0.40),
       GameSfx.PICKUP to synthesizeSequence(intArrayOf(76, 83), noteMs = 60, wave = WaveForm.SINE, gain = 0.34),
       GameSfx.PUZZLE_STEP to synthesizeClick(freqStart = 520.0, freqEnd = 740.0, ms = 42),
+      GameSfx.BLOCK_PLACE to synthesizeClick(freqStart = 420.0, freqEnd = 660.0, ms = 58),
+      GameSfx.BLOCK_BLAST to synthesizeSequence(intArrayOf(72, 76, 79, 84), noteMs = 55, wave = WaveForm.TRIANGLE, gain = 0.42),
       GameSfx.VICTORY to synthesizeVictoryFanfare(),
     )
   }
@@ -226,15 +357,24 @@ object VaultAudioEngine {
     lobbySfxOn: Boolean,
     isLobbyScreen: Boolean,
     gameSfxOn: Boolean = gameSfxEnabled,
+    lobbySongId: String = selectedLobbySongId,
   ) {
     musicEnabled = musicOn
     lobbySfxEnabled = lobbySfxOn
     gameSfxEnabled = gameSfxOn
     inLobby = isLobbyScreen
+    selectedLobbySongId = lobbySongId
     if (musicOn && isForeground) {
       ensureMusicRunning()
     } else if (!musicOn) {
       stopMusicThread()
+    }
+  }
+
+  fun setLobbySong(songId: String) {
+    selectedLobbySongId = songId
+    if (musicEnabled && isForeground) {
+      ensureMusicRunning()
     }
   }
 
@@ -339,7 +479,7 @@ object VaultAudioEngine {
           var bassPhase = 0.0
 
           while (running && musicEnabled && isForeground) {
-            val bp = VaultTrackCatalog.forKey(currentTrackKey.value)
+            val bp = VaultTrackCatalog.forKey(currentTrackKey.value, selectedLobbySongId)
             if (bp.id != activeId) {
               activeId = bp.id
               step = 0

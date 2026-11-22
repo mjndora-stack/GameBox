@@ -28,6 +28,7 @@ class ThemePreferencesRepository(private val context: Context) {
     val MUSIC_ENABLED = booleanPreferencesKey("music_enabled")
     val LOBBY_SFX_ENABLED = booleanPreferencesKey("lobby_sfx_enabled")
     val GAME_SFX_ENABLED = booleanPreferencesKey("game_sfx_enabled")
+    val SELECTED_LOBBY_SONG = stringPreferencesKey("selected_lobby_song")
     val FIGHTER_UPGRADES = stringPreferencesKey("fighter_upgrades")
     val CREATOR_PIN = stringPreferencesKey("creator_pin")
     val DAILY_LAST_DAY_KEY = stringPreferencesKey("daily_last_day_key")
@@ -50,6 +51,7 @@ class ThemePreferencesRepository(private val context: Context) {
         musicEnabled = prefs[Keys.MUSIC_ENABLED] ?: true,
         lobbySfxEnabled = prefs[Keys.LOBBY_SFX_ENABLED] ?: true,
         gameSfxEnabled = prefs[Keys.GAME_SFX_ENABLED] ?: true,
+        selectedLobbySongId = prefs[Keys.SELECTED_LOBBY_SONG] ?: "lobby_lounge",
         fighterUpgrades = VaultPreferences.parseFighterUpgrades(prefs[Keys.FIGHTER_UPGRADES]),
       )
     }
@@ -94,6 +96,12 @@ class ThemePreferencesRepository(private val context: Context) {
     context.vaultDataStore.edit { prefs ->
       val current = prefs[Keys.GAME_SFX_ENABLED] ?: true
       prefs[Keys.GAME_SFX_ENABLED] = !current
+    }
+  }
+
+  suspend fun setSelectedLobbySong(songId: String) {
+    context.vaultDataStore.edit { prefs ->
+      prefs[Keys.SELECTED_LOBBY_SONG] = songId
     }
   }
 

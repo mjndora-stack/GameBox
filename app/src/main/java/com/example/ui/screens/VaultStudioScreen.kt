@@ -53,7 +53,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.Image
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import com.example.R
 import com.example.audio.VaultAudioEngine
+import com.example.audio.VaultTrackCatalog
 import com.example.data.model.ControlConfig
 import com.example.data.model.GameEngineType
 import com.example.data.model.PlayerTier
@@ -70,6 +76,7 @@ fun VaultStudioScreen(
   onToggleMusic: () -> Unit,
   onToggleLobbySfx: () -> Unit,
   onToggleGameSfx: () -> Unit,
+  onSelectLobbySong: (String) -> Unit,
   onUpdateControls: ((ControlConfig) -> ControlConfig) -> Unit,
   onUnlockCreator: (String) -> Boolean,
   onLockCreator: () -> Unit,
@@ -226,6 +233,46 @@ fun VaultStudioScreen(
             },
             tag = "switch_game_sfx",
           )
+
+          Spacer(Modifier.height(4.dp))
+          Text(
+            text = "LOBBY SONG LIBRARY (PLAYS IN LOBBY ONLY)",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.primary,
+          )
+          Text(
+            text = "Choose your themed soundtrack for VaultPlay 2 lobby screens. Higher ranks unlock exclusive songs; games keep their dedicated tracks.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+          FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+          ) {
+            VaultTrackCatalog.LOBBY_SONGS.forEach { song ->
+              val unlocked = uiState.currentTier.levelIndex >= song.requiredTier.levelIndex
+              val selected = unlocked && uiState.preferences.selectedLobbySongId == song.id
+              FilterChip(
+                selected = selected,
+                onClick = {
+                  VaultAudioEngine.playLobbyButtonSound(accent = unlocked)
+                  onSelectLobbySong(song.id)
+                },
+                leadingIcon = {
+                  if (!unlocked) {
+                    Icon(Icons.Rounded.Lock, contentDescription = "Locked", modifier = Modifier.size(15.dp))
+                  }
+                },
+                label = {
+                  val suffix =
+                    if (unlocked) "${song.themeName} (${song.blueprint.bpm} BPM)"
+                    else "${song.requiredTier.displayName} Rank (${song.requiredTier.minXp} XP)"
+                  Text("${song.title} · $suffix")
+                },
+                modifier = Modifier.testTag("lobby_song_${song.id}"),
+              )
+            }
+          }
         }
       }
     }
@@ -496,16 +543,23 @@ fun VaultStudioScreen(
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = Modifier.fillMaxWidth().testTag("settings_about_card"),
       ) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+          Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Image(
+              painter = painterResource(id = R.drawable.ic_vault2_foreground),
+              contentDescription = "VaultPlay 2 Logo",
+              contentScale = ContentScale.Crop,
+              modifier = Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)),
+            )
+            Column {
+              Text("VaultPlay 2", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+              Text("100% Offline Curated Game Vault", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+          }
+          Spacer(Modifier.height(2.dp))
           Text("Made by Chris Mjelo", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
           Text("TikTok: @latency55", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
           Text("Email: mjndora@gmail.com", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
-          Spacer(Modifier.height(4.dp))
-          Text(
-            "VaultPlay · 100% Offline Curated Game Vault",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-          )
         }
       }
     }

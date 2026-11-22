@@ -119,6 +119,7 @@ data class VaultPreferences(
   val musicEnabled: Boolean = true,
   val lobbySfxEnabled: Boolean = true,
   val gameSfxEnabled: Boolean = true,
+  val selectedLobbySongId: String = "lobby_lounge",
   val fighterUpgrades: Map<String, FighterUpgradeLevels> = defaultFighterUpgrades(),
 ) {
   companion object {

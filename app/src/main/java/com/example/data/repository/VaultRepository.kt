@@ -137,6 +137,10 @@ class VaultRepository(
     return true
   }
 
+  suspend fun updateProfileAvatar(profileId: Long, avatarIcon: String) {
+    dao.updateProfileAvatar(profileId, avatarIcon)
+  }
+
   suspend fun toggleDarkMode() = prefs.toggleDarkMode()
 
   suspend fun setThemePreset(preset: VaultThemePreset) = prefs.setThemePreset(preset)
@@ -148,6 +152,8 @@ class VaultRepository(
   suspend fun toggleLobbySfxEnabled() = prefs.toggleLobbySfxEnabled()
 
   suspend fun toggleGameSfxEnabled() = prefs.toggleGameSfxEnabled()
+
+  suspend fun setSelectedLobbySong(songId: String) = prefs.setSelectedLobbySong(songId)
 
   suspend fun upgradeFighterStat(
     profileId: Long,

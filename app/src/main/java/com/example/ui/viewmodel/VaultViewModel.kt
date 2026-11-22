@@ -223,6 +223,19 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
     viewModelScope.launch { repository.toggleGameSfxEnabled() }
   }
 
+  fun selectLobbySong(songId: String) {
+    val song = com.example.audio.VaultTrackCatalog.lobbySongById(songId)
+    val tier = uiState.value.currentTier
+    if (tier.levelIndex >= song.requiredTier.levelIndex) {
+      viewModelScope.launch {
+        repository.setSelectedLobbySong(song.id)
+        com.example.audio.VaultAudioEngine.setLobbySong(song.id)
+      }
+    } else {
+      statusBanner.value = "Reach ${song.requiredTier.displayName} rank (${song.requiredTier.minXp} XP) to unlock \"${song.title}\"."
+    }
+  }
+
   fun upgradeFighterStat(fighterId: String, stat: FighterStat, cost: Int) {
     val profileId = uiState.value.activeProfile?.id ?: 1L
     viewModelScope.launch {
@@ -244,6 +257,14 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
     viewModelScope.launch {
       repository.createProfile(name, avatarIcon)
       statusBanner.value = "Created traveler profile \"$name\"."
+    }
+  }
+
+  fun updateAvatar(avatarId: String) {
+    val profileId = uiState.value.activeProfile?.id ?: 1L
+    viewModelScope.launch {
+      repository.updateProfileAvatar(profileId, avatarId)
+      statusBanner.value = "Updated traveler avatar."
     }
   }
 

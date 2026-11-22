@@ -7,6 +7,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -22,6 +23,9 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.EmojiEvents
 import androidx.compose.material.icons.outlined.Leaderboard
@@ -151,12 +155,26 @@ fun VaultPlayApp(
     }
   }
 
-  LaunchedEffect(activeGameId, uiState.preferences.musicEnabled, uiState.preferences.lobbySfxEnabled, uiState.preferences.gameSfxEnabled) {
+  LaunchedEffect(
+    activeGameId,
+    uiState.preferences.musicEnabled,
+    uiState.preferences.lobbySfxEnabled,
+    uiState.preferences.gameSfxEnabled,
+    uiState.preferences.selectedLobbySongId,
+    uiState.currentTier,
+  ) {
+    val activeLobbySong =
+      if (com.example.audio.VaultTrackCatalog.isLobbySongUnlocked(uiState.preferences.selectedLobbySongId, uiState.currentTier)) {
+        uiState.preferences.selectedLobbySongId
+      } else {
+        "lobby_lounge"
+      }
     VaultAudioEngine.syncSettings(
       musicOn = uiState.preferences.musicEnabled,
       lobbySfxOn = uiState.preferences.lobbySfxEnabled,
       isLobbyScreen = !isInsidePlayer,
       gameSfxOn = uiState.preferences.gameSfxEnabled,
+      lobbySongId = activeLobbySong,
     )
     VaultAudioEngine.setTrack(activeGameId ?: "lobby")
   }
@@ -191,6 +209,12 @@ fun VaultPlayApp(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
               ) {
+                Image(
+                  painter = painterResource(id = R.drawable.ic_vault2_foreground),
+                  contentDescription = "VaultPlay 2 logo",
+                  contentScale = ContentScale.Crop,
+                  modifier = Modifier.size(34.dp).clip(RoundedCornerShape(9.dp)),
+                )
                 Text(
                   text = stringResource(R.string.app_name),
                   style = MaterialTheme.typography.headlineSmall,
@@ -326,6 +350,7 @@ fun VaultPlayApp(
                     navController.navigate("player/${game.id}")
                   },
                   onEquipBadge = viewModel::equipCosmeticBadge,
+                  onSelectAvatar = viewModel::updateAvatar,
                   onCycleBonusMissions = viewModel::cycleBonusDailyMissions,
                 )
               }
@@ -333,6 +358,7 @@ fun VaultPlayApp(
                 AchievementsScreen(
                   uiState = uiState,
                   onEquipBadge = viewModel::equipCosmeticBadge,
+                  onSelectAvatar = viewModel::updateAvatar,
                   onCycleBonusMissions = viewModel::cycleBonusDailyMissions,
                   onLaunchMissionGame = { gameId ->
                     val target = uiState.games.firstOrNull { it.id == gameId }
@@ -358,6 +384,7 @@ fun VaultPlayApp(
                   onToggleMusic = viewModel::toggleMusicEnabled,
                   onToggleLobbySfx = viewModel::toggleLobbySfxEnabled,
                   onToggleGameSfx = viewModel::toggleGameSfxEnabled,
+                  onSelectLobbySong = viewModel::selectLobbySong,
                   onUpdateControls = viewModel::updateControlConfig,
                   onUnlockCreator = viewModel::unlockCreatorMode,
                   onLockCreator = viewModel::lockCreatorMode,

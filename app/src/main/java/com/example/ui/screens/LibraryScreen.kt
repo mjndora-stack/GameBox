@@ -57,7 +57,7 @@ import com.example.data.model.LibraryFilter
 import com.example.data.model.PlayerTier
 import com.example.ui.components.DailyMissionsPanel
 import com.example.ui.components.GameCoverArtwork
-import com.example.ui.components.TierProgressHeader
+import com.example.ui.components.UserProfileCard
 import com.example.ui.viewmodel.VaultUiState
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -68,6 +68,7 @@ fun LibraryScreen(
   onSearchChanged: (String) -> Unit,
   onLaunchGame: (GameEntryEntity) -> Unit,
   onEquipBadge: (String?) -> Unit,
+  onSelectAvatar: (String) -> Unit,
   onCycleBonusMissions: () -> Unit,
   modifier: Modifier = Modifier,
 ) {
@@ -93,13 +94,18 @@ fun LibraryScreen(
     ) {
       item(span = { GridItemSpan(columns) }) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-          TierProgressHeader(
+          UserProfileCard(
             playerName = profile?.name ?: "Traveler One",
-            xp = xp,
+            avatarId = profile?.avatarIcon,
+            cumulativeXp = xp,
             credits = profile?.vaultCredits ?: 100,
+            gamesPlayed = profile?.gamesPlayedCount ?: 0,
             tier = uiState.currentTier,
-            progress = uiState.tierProgress,
+            tierProgress = uiState.tierProgress,
+            cosmeticBadges = uiState.cosmeticBadges,
             equippedBadge = uiState.equippedCosmeticBadge,
+            onSelectAvatar = onSelectAvatar,
+            onEquipBadge = onEquipBadge,
           )
 
           DailyMissionsPanel(

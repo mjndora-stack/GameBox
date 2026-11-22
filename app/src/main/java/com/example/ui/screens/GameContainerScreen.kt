@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import com.example.data.local.GameEntryEntity
 import com.example.data.model.FighterStat
 import com.example.data.model.GameEngineType
+import com.example.ui.engines.BlockBlastGame
 import com.example.ui.engines.ChromaFloodGame
 import com.example.ui.engines.CipherMastermindGame
 import com.example.ui.engines.CrateSokobanGame
@@ -174,6 +175,7 @@ fun GameContainerScreen(
             "sudoku_six" -> SudokuSixGame(onAwardXp = callback)
             "crate_sokoban" -> CrateSokobanGame(onAwardXp = callback)
             "queens_grid" -> QueensGridGame(onAwardXp = callback)
+            "block_blast" -> BlockBlastGame(initialBestScore = game.highScore, onAwardXp = callback)
             else -> Prism2048Game(onAwardXp = callback)
           }
         }

@@ -114,7 +114,24 @@ abstract class VaultDatabase : RoomDatabase() {
           releaseNote = "Arcade Drop · Smooth 60fps flight & medal tiers",
           sortOrder = 4,
         ),
-        // 8 Unlocked Puzzle Games (Distinct Mechanics)
+        GameEntryEntity(
+          id = "block_blast",
+          title = "Block Blast",
+          subtitle = "8×8 Endless Line-Blaster · High Score",
+          genre = "Block Puzzle · Endless",
+          engineType = GameEngineType.PUZZLE_NATIVE.name,
+          requiredTier = PlayerTier.HOBBYIST.name,
+          versionTag = "v1.0.0",
+          sizeLabel = "Native · Endless",
+          assetPath = "puzzle://block_blast",
+          coverKey = "block_blast",
+          description =
+            "Place polyomino cube clusters onto an 8×8 board to blast full rows and columns in endless play! Build multi-line combos, beat your personal High Score, or switch on Zen Endless shockwaves.",
+          controlsHint = "Drag shapes onto the 8×8 board or tap tray + tap cell · Toggle Endless / Zen ∞ at top",
+          releaseNote = "Puzzle Drop · Endless Play, Combo Blasts & High Score tracking",
+          sortOrder = 5,
+        ),
+        // Unlocked Puzzle Games (Distinct Mechanics)
         GameEntryEntity(
           id = "prism_2048",
           title = "Prism 2048",
@@ -468,6 +485,14 @@ abstract class VaultDatabase : RoomDatabase() {
           gameId = "flappy_bird",
         ),
         AchievementEntity(
+          id = "block_blast_master",
+          title = "Cube Blaster",
+          description = "Score 1,000+ points in a single Endless Block Blast run.",
+          iconKey = "star",
+          xpReward = 220,
+          gameId = "block_blast",
+        ),
+        AchievementEntity(
           id = "tier_mythic",
           title = "Mythic Vault Sovereign",
           description = "Reach the pinnacle 25,000 XP Mythic rank.",
@@ -495,6 +520,7 @@ abstract class VaultDatabase : RoomDatabase() {
         LeaderboardEntryEntity(gameId = "sudoku_six", playerName = "Ghost · Euler", score = 1900, tierName = "Grandmaster", isGhostRival = true),
         LeaderboardEntryEntity(gameId = "crate_sokoban", playerName = "Ghost · Loader", score = 2200, tierName = "Virtuoso", isGhostRival = true),
         LeaderboardEntryEntity(gameId = "queens_grid", playerName = "Ghost · Kasparov", score = 2800, tierName = "Mythic", isGhostRival = true),
+        LeaderboardEntryEntity(gameId = "block_blast", playerName = "Ghost · Poly", score = 2400, tierName = "Pro", isGhostRival = true),
       )
 
     fun defaultCosmeticBadges(): List<CosmeticBadgeEntity> =

@@ -50,9 +50,9 @@ class ExampleRobolectricTest {
     assertEquals(PlayerTier.MYTHIC, PlayerTier.fromXp(25000))
 
     val games = VaultDatabase.defaultGames()
-    // 2 kept platformers + 2 arcade (SF2D, Flappy) + 12 puzzles + Vault Chess = 17 games
-    assertEquals(17, games.size)
-    assertEquals(17, games.map { it.id }.toSet().size)
+    // 2 kept platformers + 2 arcade (SF2D, Flappy) + Block Blast + 12 puzzles + Vault Chess = 18 games
+    assertEquals(18, games.size)
+    assertEquals(18, games.map { it.id }.toSet().size)
 
     // Kept platformers, Neon Hop marked Fan Favourite, and new games present
     val neon = games.first { it.id == "neon_hop" }
@@ -61,6 +61,7 @@ class ExampleRobolectricTest {
     assertTrue(games.any { it.id == "vault_chess" && it.requiredTier == PlayerTier.HOBBYIST.name })
     assertTrue(games.any { it.id == "street_fighter_2d" && it.requiredTier == PlayerTier.HOBBYIST.name })
     assertTrue(games.any { it.id == "flappy_bird" && it.requiredTier == PlayerTier.HOBBYIST.name })
+    assertTrue(games.any { it.id == "block_blast" && it.requiredTier == PlayerTier.HOBBYIST.name })
 
     // Removed titles including Hill Climb Racing
     assertTrue(games.none { it.id in setOf("hill_climb", "ash_cipher", "crypt_echoes", "apex_vector", "vice_horizon") })
@@ -75,10 +76,10 @@ class ExampleRobolectricTest {
   fun `every game and the lobby have distinct soundtrack blueprints`() {
     val games = VaultDatabase.defaultGames()
     val lobbyTrack = VaultTrackCatalog.forKey("lobby")
-    assertEquals("lobby", lobbyTrack.id)
+    assertEquals("lobby_lounge", lobbyTrack.id)
     val gameTracks = games.map { VaultTrackCatalog.forKey(it.id) }
     assertEquals(games.size, gameTracks.map { it.id }.toSet().size)
-    assertTrue(gameTracks.none { it.id == "lobby" })
+    assertTrue(gameTracks.none { it.id.startsWith("lobby") })
   }
 
   @Test
@@ -136,6 +137,8 @@ class ExampleRobolectricTest {
       com.example.audio.GameSfx.CHECKMATE,
       com.example.audio.GameSfx.PICKUP,
       com.example.audio.GameSfx.PUZZLE_STEP,
+      com.example.audio.GameSfx.BLOCK_PLACE,
+      com.example.audio.GameSfx.BLOCK_BLAST,
       com.example.audio.GameSfx.VICTORY,
     )
     assertEquals(expectedEffects, com.example.audio.GameSfx.entries.toSet())
@@ -159,6 +162,81 @@ class ExampleRobolectricTest {
     assertEquals(0.9f, PlayerTier.progressInTier(reward.previousTotalXp), 0.001f)
     assertEquals(0.1f, PlayerTier.progressInTier(reward.newTotalXp), 0.001f)
     assertEquals(1.0f, PlayerTier.progressInTier(PlayerTier.MYTHIC.minXp + 500), 0.001f)
+  }
+
+  @Test
+  fun `lobby song library affects lobby track only and leaves game tracks untouched`() {
+    assertEquals(7, VaultTrackCatalog.LOBBY_SONGS.size)
+    assertEquals(7, VaultTrackCatalog.LOBBY_SONGS.map { it.id }.toSet().size)
+
+    val lobbyCyber = VaultTrackCatalog.forKey("lobby", "lobby_cyberpunk")
+    assertEquals("lobby_cyberpunk", lobbyCyber.id)
+
+    val lobbyZen = VaultTrackCatalog.forKey("lobby", "lobby_zen")
+    assertEquals("lobby_zen", lobbyZen.id)
+
+    val neonHopTrack = VaultTrackCatalog.forKey("neon_hop", "lobby_cyberpunk")
+    assertEquals("neon_hop", neonHopTrack.id)
+    val chessTrack = VaultTrackCatalog.forKey("vault_chess", "lobby_lofi")
+    assertEquals("vault_chess", chessTrack.id)
+  }
+
+  @Test
+  fun `daily missions and cosmetic badges include chess win and flappy 500 challenges`() {
+    val badges = VaultDatabase.defaultCosmeticBadges()
+    assertEquals(8, badges.size)
+    assertEquals(8, badges.map { it.id }.toSet().size)
+
+    val missionsDay0 = VaultDatabase.generateDailyMissionsForDay("2026-100", 0)
+    assertEquals(3, missionsDay0.size)
+    assertTrue(missionsDay0.any { it.title == "Win a Chess match" && it.gameId == "vault_chess" && it.cosmeticBadgeId in badges.map { b -> b.id } })
+    assertTrue(missionsDay0.any { it.title == "Score 500 in Flappy Bird" && it.gameId == "flappy_bird" && it.targetValue == 500 })
+
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    assertEquals("VaultPlay 2", context.getString(R.string.app_name))
+  }
+
+  @Test
+  fun `some lobby songs require higher ranks while default songs remain open`() {
+    val unlockedStarter = VaultTrackCatalog.LOBBY_SONGS.filter { VaultTrackCatalog.isLobbySongUnlocked(it.id, PlayerTier.HOBBYIST) }
+    val lockedStarter = VaultTrackCatalog.LOBBY_SONGS.filterNot { VaultTrackCatalog.isLobbySongUnlocked(it.id, PlayerTier.HOBBYIST) }
+
+    assertEquals(2, unlockedStarter.size)
+    assertEquals(5, lockedStarter.size)
+    assertTrue(VaultTrackCatalog.isLobbySongUnlocked("lobby_cyberpunk", PlayerTier.PRO))
+    assertFalse(VaultTrackCatalog.isLobbySongUnlocked("lobby_cyberpunk", PlayerTier.EXPERT))
+    assertTrue(VaultTrackCatalog.isLobbySongUnlocked("lobby_zen", PlayerTier.VIRTUOSO))
+    assertFalse(VaultTrackCatalog.isLobbySongUnlocked("lobby_zen", PlayerTier.MASTER))
+  }
+
+  @Test
+  fun `avatar catalog resolves all 4 generated avatars cleanly`() {
+    val options = com.example.ui.components.VaultAvatarCatalog.OPTIONS
+    assertEquals(4, options.size)
+    assertEquals("striker", com.example.ui.components.VaultAvatarCatalog.resolve("striker").id)
+    assertEquals("tactician", com.example.ui.components.VaultAvatarCatalog.resolve("tactician").id)
+    assertEquals("aviator", com.example.ui.components.VaultAvatarCatalog.resolve("aviator").id)
+    assertEquals("cyber", com.example.ui.components.VaultAvatarCatalog.resolve("rocket").id)
+  }
+
+  @Test
+  fun `block blast logic clears full rows and columns and supports endless rescue`() {
+    val grid = com.example.ui.engines.BlockBlastLogic.emptyGrid().map { it.toMutableList() }
+    // Fill row 0 except column 7
+    for (c in 0..6) grid[0][c] = 0xFF4CE8C8L
+    // Fill col 7 except row 0
+    for (r in 1..7) grid[r][7] = 0xFF38BDF8L
+
+    val dot = com.example.ui.engines.BlockShape("dot", listOf(0 to 0), 0xFFFACC15L)
+    assertTrue(com.example.ui.engines.BlockBlastLogic.canPlace(grid, dot, 0, 7))
+    val result = com.example.ui.engines.BlockBlastLogic.placeAndClear(grid, dot, 0, 7, comboStreak = 1)
+    assertEquals(setOf(0), result.clearedRows)
+    assertEquals(setOf(7), result.clearedCols)
+    assertTrue(result.pointsEarned > 300)
+    assertTrue(result.nextGrid[0].all { it == 0L })
+    assertTrue(result.nextGrid.all { row -> row[7] == 0L })
+
+    assertEquals("block_blast", VaultTrackCatalog.forKey("block_blast").id)
   }
 }
 
