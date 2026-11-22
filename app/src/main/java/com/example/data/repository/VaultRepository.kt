@@ -8,6 +8,7 @@ import com.example.data.local.AchievementEntity
 import com.example.data.local.CosmeticBadgeEntity
 import com.example.data.local.DailyMissionEntity
 import com.example.data.local.GameEntryEntity
+import com.example.data.local.GameQuickResumeEntity
 import com.example.data.local.LeaderboardEntryEntity
 import com.example.data.local.ProfileEntity
 import com.example.data.local.ThemePreferencesRepository
@@ -52,6 +53,7 @@ class VaultRepository(
   val leaderboardFlow: Flow<List<LeaderboardEntryEntity>> = dao.observeAllLeaderboardEntries()
   val dailyMissionsFlow: Flow<List<DailyMissionEntity>> = dao.observeAllDailyMissions()
   val cosmeticBadgesFlow: Flow<List<CosmeticBadgeEntity>> = dao.observeCosmeticBadges()
+  val quickResumesFlow: Flow<List<GameQuickResumeEntity>> = dao.observeQuickResumes()
 
   fun observeProfile(profileId: Long): Flow<ProfileEntity?> = dao.observeProfile(profileId)
 
@@ -139,6 +141,21 @@ class VaultRepository(
 
   suspend fun updateProfileAvatar(profileId: Long, avatarIcon: String) {
     dao.updateProfileAvatar(profileId, avatarIcon)
+  }
+
+  suspend fun saveQuickResume(gameId: String, summaryLabel: String, stateJson: String) {
+    dao.upsertQuickResume(
+      GameQuickResumeEntity(
+        gameId = gameId,
+        summaryLabel = summaryLabel,
+        stateJson = stateJson,
+        updatedAt = System.currentTimeMillis(),
+      )
+    )
+  }
+
+  suspend fun clearQuickResume(gameId: String) {
+    dao.deleteQuickResume(gameId)
   }
 
   suspend fun toggleDarkMode() = prefs.toggleDarkMode()

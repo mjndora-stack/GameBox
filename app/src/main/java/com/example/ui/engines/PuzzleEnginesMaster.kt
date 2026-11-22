@@ -35,11 +35,13 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -59,12 +61,16 @@ import com.example.audio.GameSfx
 import com.example.audio.VaultAudioEngine
 import kotlin.math.abs
 import kotlin.random.Random
+import org.json.JSONArray
+import org.json.JSONObject
 
 // 9. CIPHER MASTERMIND (Enthusiast Rank Unlock)
 @Composable
 fun CipherMastermindGame(
   onAwardXp: (Int, Int?, String?) -> Unit,
   modifier: Modifier = Modifier,
+  savedStateJson: String? = null,
+  onRegisterQuickResumeProvider: ((() -> Pair<String, String>?) -> Unit) = {},
 ) {
   val tokens = listOf(
     Color(0xFF4CE8C8),
@@ -77,11 +83,61 @@ fun CipherMastermindGame(
 
   fun makeSecret(): List<Int> = List(4) { Random.nextInt(tokens.size) }
 
-  var secret by remember { mutableStateOf(makeSecret()) }
-  val history = remember { mutableStateListOf<Triple<List<Int>, Int, Int>>() } // guess, exact, misplaced
-  var draft by remember { mutableStateOf(listOf(0, 1, 2, 3)) }
+  val initialSnapshot = remember(savedStateJson) {
+    if (savedStateJson.isNullOrBlank()) null
+    else runCatching {
+      val obj = JSONObject(savedStateJson)
+      val secArr = QuickResumeSerializer.decodeIntArray(obj.optJSONArray("secret")) ?: return@runCatching null
+      if (secArr.size != 4) return@runCatching null
+      val draftArr = QuickResumeSerializer.decodeIntArray(obj.optJSONArray("draft"))
+      val histJson = obj.optJSONArray("history") ?: JSONArray()
+      val parsedHist = buildList {
+        for (i in 0 until histJson.length()) {
+          val h = histJson.getJSONObject(i)
+          val g = QuickResumeSerializer.decodeIntArray(h.optJSONArray("g")) ?: continue
+          if (g.size == 4) add(Triple(g.toList(), h.getInt("e"), h.getInt("n")))
+        }
+      }
+      Triple(secArr.toList(), parsedHist, draftArr?.toList()?.takeIf { it.size == 4 } ?: listOf(0, 1, 2, 3))
+    }.getOrNull()
+  }
+
+  var secret by remember(savedStateJson) { mutableStateOf(initialSnapshot?.first ?: makeSecret()) }
+  val history = remember(savedStateJson) {
+    mutableStateListOf<Triple<List<Int>, Int, Int>>().apply {
+      initialSnapshot?.second?.let { addAll(it) }
+    }
+  } // guess, exact, misplaced
+  var draft by remember(savedStateJson) { mutableStateOf(initialSnapshot?.third ?: listOf(0, 1, 2, 3)) }
   var activeSlot by remember { mutableIntStateOf(0) }
   var won by remember { mutableStateOf(false) }
+
+  val latestSecret by rememberUpdatedState(secret)
+  val latestDraft by rememberUpdatedState(draft)
+  val latestWon by rememberUpdatedState(won)
+
+  DisposableEffect(onRegisterQuickResumeProvider) {
+    onRegisterQuickResumeProvider {
+      if (latestWon || history.isEmpty() || history.size >= 8) null
+      else {
+        val obj = JSONObject().apply {
+          put("secret", QuickResumeSerializer.encodeIntArray(latestSecret.toIntArray()))
+          put("draft", QuickResumeSerializer.encodeIntArray(latestDraft.toIntArray()))
+          val hArr = JSONArray()
+          history.forEach { (g, e, n) ->
+            hArr.put(JSONObject().apply {
+              put("g", QuickResumeSerializer.encodeIntArray(g.toIntArray()))
+              put("e", e)
+              put("n", n)
+            })
+          }
+          put("history", hArr)
+        }
+        "Attempt ${history.size}/8" to obj.toString()
+      }
+    }
+    onDispose {}
+  }
 
   fun submitGuess() {
     if (won || history.size >= 8) return
@@ -138,10 +194,24 @@ fun CipherMastermindGame(
             Text("#${idx + 1}", style = MaterialTheme.typography.labelSmall)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
               guess.forEach { tIdx ->
-                Box(modifier = Modifier.size(26.dp).clip(CircleShape).background(tokens[tIdx]))
+                Box(modifier = Modifier.size(28.dp).clip(CircleShape).background(tokens[tIdx]).border(1.dp, Color(0x55FFFFFF), CircleShape)) {
+                  Canvas(modifier = Modifier.fillMaxSize()) {
+                    drawCircle(Color.White.copy(alpha = 0.50f), size.minDimension * 0.16f, Offset(size.width * 0.34f, size.height * 0.30f))
+                  }
+                }
               }
             }
-            Text("$exact Exact · $near Near", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+            // Visual Exact (green) & Near (amber) LED cluster
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+              repeat(4) { p ->
+                val ledCol = when {
+                  p < exact -> Color(0xFF4ADE80)
+                  p < exact + near -> Color(0xFFFFC857)
+                  else -> Color(0xFF283344)
+                }
+                Box(modifier = Modifier.size(9.dp).clip(CircleShape).background(ledCol).border(0.8.dp, Color(0x33FFFFFF), CircleShape))
+              }
+            }
           }
         }
       }
@@ -153,12 +223,16 @@ fun CipherMastermindGame(
         Box(
           modifier =
             Modifier
-              .size(50.dp)
+              .size(52.dp)
               .clip(CircleShape)
               .background(tokens[tokenIdx])
-              .border(3.dp, if (activeSlot == slot) Color.White else Color.Transparent, CircleShape)
+              .border(3.dp, if (activeSlot == slot) Color.White else Color(0x44FFFFFF), CircleShape)
               .clickable { activeSlot = slot },
-        )
+        ) {
+          Canvas(modifier = Modifier.fillMaxSize()) {
+            drawCircle(Color.White.copy(alpha = 0.45f), size.minDimension * 0.16f, Offset(size.width * 0.33f, size.height * 0.30f))
+          }
+        }
       }
     }
 
@@ -168,14 +242,19 @@ fun CipherMastermindGame(
         Box(
           modifier =
             Modifier
-              .size(40.dp)
-              .clip(RoundedCornerShape(10.dp))
+              .size(44.dp)
+              .clip(CircleShape)
               .background(color)
+              .border(1.5.dp, Color(0x55FFFFFF), CircleShape)
               .clickable {
                 draft = draft.toMutableList().also { it[activeSlot] = tIdx }
                 activeSlot = (activeSlot + 1) % 4
               },
-        )
+        ) {
+          Canvas(modifier = Modifier.fillMaxSize()) {
+            drawCircle(Color.White.copy(alpha = 0.48f), size.minDimension * 0.16f, Offset(size.width * 0.33f, size.height * 0.30f))
+          }
+        }
       }
     }
 
@@ -191,6 +270,8 @@ fun CipherMastermindGame(
 fun SudokuSixGame(
   onAwardXp: (Int, Int?, String?) -> Unit,
   modifier: Modifier = Modifier,
+  savedStateJson: String? = null,
+  onRegisterQuickResumeProvider: ((() -> Pair<String, String>?) -> Unit) = {},
 ) {
   val puzzles = remember {
     listOf(
@@ -213,11 +294,48 @@ fun SudokuSixGame(
     )
   }
 
-  var level by remember { mutableIntStateOf(0) }
+  val initialSnapshot = remember(savedStateJson) {
+    if (savedStateJson.isNullOrBlank()) null
+    else runCatching {
+      val obj = JSONObject(savedStateJson)
+      val arr = QuickResumeSerializer.decodeIntArray(obj.optJSONArray("board")) ?: return@runCatching null
+      if (arr.size != 36) return@runCatching null
+      obj.optInt("level", 0).coerceAtLeast(0) to arr
+    }.getOrNull()
+  }
+
+  var level by remember(savedStateJson) { mutableIntStateOf(initialSnapshot?.first ?: 0) }
   val fixed = puzzles[level % puzzles.size]
-  var board by remember(level) { mutableStateOf(fixed.copyOf()) }
-  var selected by remember(level) { mutableIntStateOf(-1) }
-  var solved by remember(level) { mutableStateOf(false) }
+  var board by remember(savedStateJson) { mutableStateOf(initialSnapshot?.second ?: fixed.copyOf()) }
+  var selected by remember(savedStateJson) { mutableIntStateOf(-1) }
+  var solved by remember(savedStateJson) { mutableStateOf(false) }
+
+  fun startSudokuBoard(nextLevel: Int) {
+    level = nextLevel
+    board = puzzles[nextLevel % puzzles.size].copyOf()
+    selected = -1
+    solved = false
+  }
+
+  val latestLevel by rememberUpdatedState(level)
+  val latestBoard by rememberUpdatedState(board)
+  val latestSolved by rememberUpdatedState(solved)
+
+  DisposableEffect(onRegisterQuickResumeProvider) {
+    onRegisterQuickResumeProvider {
+      val curFixed = puzzles[latestLevel % puzzles.size]
+      if (latestSolved || latestBoard.contentEquals(curFixed)) null
+      else {
+        val obj = JSONObject().apply {
+          put("level", latestLevel)
+          put("board", QuickResumeSerializer.encodeIntArray(latestBoard))
+        }
+        val filled = latestBoard.count { it != 0 }
+        "Board ${latestLevel % puzzles.size + 1}/2 · $filled/36" to obj.toString()
+      }
+    }
+    onDispose {}
+  }
 
   fun hasConflict(arr: IntArray, idx: Int): Boolean {
     val v = arr[idx]
@@ -252,6 +370,10 @@ fun SudokuSixGame(
       modifier = Modifier.widthIn(max = 350.dp).fillMaxWidth().aspectRatio(1f),
     ) {
       Column(modifier = Modifier.padding(6.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        val selR = if (selected >= 0) selected / 6 else -1
+        val selC = if (selected >= 0) selected % 6 else -1
+        val selBoxR = if (selR >= 0) selR / 2 else -1
+        val selBoxC = if (selC >= 0) selC / 3 else -1
         for (r in 0 until 6) {
           Row(modifier = Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
             for (c in 0 until 6) {
@@ -259,6 +381,8 @@ fun SudokuSixGame(
               val v = board[idx]
               val isFixed = fixed[idx] != 0
               val isSel = selected == idx
+              val inPeer = selected >= 0 && !isSel && (r == selR || c == selC || (r / 2 == selBoxR && c / 3 == selBoxC))
+              val altBox = ((r / 2) + (c / 3)) % 2 == 1
               val conflict = hasConflict(board, idx)
               Box(
                 contentAlignment = Alignment.Center,
@@ -266,33 +390,34 @@ fun SudokuSixGame(
                   Modifier
                     .weight(1f)
                     .fillMaxSize()
-                    .clip(RoundedCornerShape(4.dp))
+                    .clip(RoundedCornerShape(5.dp))
                     .background(
                       when {
-                        conflict -> MaterialTheme.colorScheme.error.copy(alpha = 0.25f)
+                        conflict -> MaterialTheme.colorScheme.error.copy(alpha = 0.28f)
                         isSel -> MaterialTheme.colorScheme.primaryContainer
-                        isFixed -> MaterialTheme.colorScheme.surface
-                        else -> MaterialTheme.colorScheme.surface.copy(alpha = 0.65f)
+                        inPeer -> MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                        isFixed -> if (altBox) Color(0xFF1F2937) else Color(0xFF17202D)
+                        else -> if (altBox) Color(0xFF131A24) else Color(0xFF0F151E)
                       }
                     )
                     .border(
-                      width = if (isSel) 2.dp else 0.5.dp,
+                      width = if (isSel) 2.dp else 0.75.dp,
                       color = if (isSel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
-                      shape = RoundedCornerShape(4.dp),
+                      shape = RoundedCornerShape(5.dp),
                     )
                     .clickable(enabled = !isFixed && !solved) { selected = idx },
               ) {
                 if (v != 0) {
                   Text(
                     "$v",
-                    fontWeight = if (isFixed) FontWeight.Bold else FontWeight.Medium,
-                    color = if (conflict) MaterialTheme.colorScheme.error else if (isFixed) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.primary,
+                    fontWeight = if (isFixed) FontWeight.ExtraBold else FontWeight.SemiBold,
+                    color = if (conflict) MaterialTheme.colorScheme.error else if (isFixed) Color(0xFFF1F5F9) else Color(0xFF4CE8C8),
                   )
                 }
               }
             }
           }
-          if (r == 1 || r == 3) Spacer(Modifier.height(3.dp))
+          if (r == 1 || r == 3) Spacer(Modifier.height(4.dp))
         }
       }
     }
@@ -329,7 +454,7 @@ fun SudokuSixGame(
     }
 
     if (solved) {
-      Button(onClick = { level++ }) { Text("Sudoku Solved! Next Board") }
+      Button(onClick = { startSudokuBoard(level + 1) }) { Text("Sudoku Solved! Next Board") }
     }
   }
 }
@@ -339,6 +464,8 @@ fun SudokuSixGame(
 fun CrateSokobanGame(
   onAwardXp: (Int, Int?, String?) -> Unit,
   modifier: Modifier = Modifier,
+  savedStateJson: String? = null,
+  onRegisterQuickResumeProvider: ((() -> Pair<String, String>?) -> Unit) = {},
 ) {
   val rooms = remember {
     listOf(
@@ -362,24 +489,45 @@ fun CrateSokobanGame(
     )
   }
 
-  var roomIdx by remember { mutableIntStateOf(0) }
-  val template = rooms[roomIdx % rooms.size]
-  val h = template.size
-  val w = template[0].length
-
   data class SokoState(val px: Int, val py: Int, val crates: Set<Pair<Int, Int>>)
 
-  fun initialState(): SokoState {
+  fun initialStateFor(idx: Int): SokoState {
+    val tmpl = rooms[idx % rooms.size]
+    val rh = tmpl.size
+    val rw = tmpl[0].length
     var px = 1; var py = 1
     val c = mutableSetOf<Pair<Int, Int>>()
-    for (r in 0 until h) for (col in 0 until w) {
-      when (template[r][col]) {
+    for (r in 0 until rh) for (col in 0 until rw) {
+      when (tmpl[r][col]) {
         '@' -> { px = col; py = r }
         '$' -> c.add(col to r)
       }
     }
     return SokoState(px, py, c)
   }
+
+  val initialSnapshot = remember(savedStateJson) {
+    if (savedStateJson.isNullOrBlank()) null
+    else runCatching {
+      val obj = JSONObject(savedStateJson)
+      val rIdx = obj.optInt("room", 0).coerceAtLeast(0)
+      val cArr = obj.getJSONArray("crates")
+      val crates = buildSet {
+        for (i in 0 until cArr.length()) {
+          val pair = cArr.getJSONArray(i)
+          add(pair.getInt(0) to pair.getInt(1))
+        }
+      }
+      rIdx to SokoState(obj.getInt("px"), obj.getInt("py"), crates)
+    }.getOrNull()
+  }
+
+  var roomIdx by remember(savedStateJson) { mutableIntStateOf(initialSnapshot?.first ?: 0) }
+  val template = rooms[roomIdx % rooms.size]
+  val h = template.size
+  val w = template[0].length
+
+  fun initialState(): SokoState = initialStateFor(roomIdx)
 
   val goals = remember(roomIdx) {
     buildSet {
@@ -389,11 +537,45 @@ fun CrateSokobanGame(
     }
   }
 
-  var state by remember(roomIdx) { mutableStateOf(initialState()) }
-  var facingDir by remember(roomIdx) { mutableStateOf(1 to 0) }
-  var stepToggle by remember(roomIdx) { mutableStateOf(false) }
-  val undoStack = remember(roomIdx) { mutableStateListOf<SokoState>() }
-  var won by remember(roomIdx) { mutableStateOf(false) }
+  var state by remember(savedStateJson) { mutableStateOf(initialSnapshot?.second ?: initialStateFor(roomIdx)) }
+  var facingDir by remember(savedStateJson) { mutableStateOf(1 to 0) }
+  var stepToggle by remember(savedStateJson) { mutableStateOf(false) }
+  val undoStack = remember(savedStateJson) { mutableStateListOf<SokoState>() }
+  var won by remember(savedStateJson) { mutableStateOf(false) }
+
+  fun startRoom(nextIdx: Int) {
+    roomIdx = nextIdx
+    state = initialStateFor(nextIdx)
+    facingDir = 1 to 0
+    stepToggle = false
+    undoStack.clear()
+    won = false
+  }
+
+  val latestRoom by rememberUpdatedState(roomIdx)
+  val latestState by rememberUpdatedState(state)
+  val latestWon by rememberUpdatedState(won)
+
+  DisposableEffect(onRegisterQuickResumeProvider) {
+    onRegisterQuickResumeProvider {
+      val baseline = initialStateFor(latestRoom)
+      if (latestWon || latestState == baseline) null
+      else {
+        val obj = JSONObject().apply {
+          put("room", latestRoom)
+          put("px", latestState.px)
+          put("py", latestState.py)
+          val cArr = JSONArray()
+          latestState.crates.forEach { (cx, cy) ->
+            cArr.put(JSONArray().apply { put(cx); put(cy) })
+          }
+          put("crates", cArr)
+        }
+        "Room ${latestRoom % rooms.size + 1}/2" to obj.toString()
+      }
+    }
+    onDispose {}
+  }
 
   fun step(dx: Int, dy: Int) {
     if (won) return
@@ -434,7 +616,7 @@ fun CrateSokobanGame(
         OutlinedButton(onClick = { if (undoStack.isNotEmpty()) state = undoStack.removeAt(undoStack.lastIndex) }) {
           Icon(Icons.AutoMirrored.Rounded.Undo, null, modifier = Modifier.size(16.dp))
         }
-        OutlinedButton(onClick = { state = initialState(); undoStack.clear(); won = false }) { Text("Reset") }
+        OutlinedButton(onClick = { startRoom(roomIdx) }) { Text("Reset") }
       }
     }
 
@@ -468,37 +650,61 @@ fun CrateSokobanGame(
                     ),
               ) {
                 when {
+                  isWall -> {
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                      drawRect(Color(0xFF475569), Offset.Zero, Size(size.width, size.height * 0.14f))
+                      drawLine(Color(0xFF1E293B), Offset(0f, size.height * 0.5f), Offset(size.width, size.height * 0.5f), 2f)
+                      drawLine(Color(0xFF1E293B), Offset(size.width * 0.5f, 0f), Offset(size.width * 0.5f, size.height * 0.5f), 2f)
+                      drawLine(Color(0xFF1E293B), Offset(size.width * 0.25f, size.height * 0.5f), Offset(size.width * 0.25f, size.height), 2f)
+                    }
+                  }
                   isPlayer -> {
                     // Articulated Warehouse Bot Character Model
-                    Canvas(modifier = Modifier.fillMaxSize(0.86f)) {
+                    Canvas(modifier = Modifier.fillMaxSize(0.88f)) {
                       val wC = size.width; val hC = size.height
                       val stride = if (stepToggle) 2.5f else -2.5f
-                      // Feet
-                      drawRoundRect(Color(0xFF0F172A), Offset(wC * 0.24f, hC * 0.78f + stride), Size(wC * 0.20f, hC * 0.16f), CornerRadius(4f))
-                      drawRoundRect(Color(0xFF0F172A), Offset(wC * 0.56f, hC * 0.78f - stride), Size(wC * 0.20f, hC * 0.16f), CornerRadius(4f))
-                      // Suit Torso & Arms
+                      // Boots
+                      drawRoundRect(Color(0xFF0F172A), Offset(wC * 0.22f, hC * 0.78f + stride), Size(wC * 0.22f, hC * 0.17f), CornerRadius(4f))
+                      drawRoundRect(Color(0xFF0F172A), Offset(wC * 0.56f, hC * 0.78f - stride), Size(wC * 0.22f, hC * 0.17f), CornerRadius(4f))
+                      // Articulated Arms
+                      drawRoundRect(Color(0xFF0284C7), Offset(wC * 0.08f, hC * 0.45f), Size(wC * 0.14f, hC * 0.28f), CornerRadius(4f))
+                      drawRoundRect(Color(0xFF0284C7), Offset(wC * 0.78f, hC * 0.45f), Size(wC * 0.14f, hC * 0.28f), CornerRadius(4f))
+                      // Suit Torso + Chest Core
                       drawRoundRect(Color(0xFF0EA5E9), Offset(wC * 0.20f, hC * 0.42f), Size(wC * 0.60f, hC * 0.40f), CornerRadius(7f))
-                      // Hard Hat & Face Visor looking in facingDir
-                      drawArc(Color(0xFFFACC15), 180f, 180f, true, Offset(wC * 0.22f, hC * 0.08f), Size(wC * 0.56f, hC * 0.40f))
-                      drawRoundRect(Color(0xFF1E293B), Offset(wC * 0.26f, hC * 0.26f), Size(wC * 0.48f, hC * 0.22f), CornerRadius(5f))
+                      drawCircle(Color(0xFF4CE8C8), wC * 0.08f, Offset(wC * 0.50f, hC * 0.60f))
+                      // Hard Hat + Rim + Face Visor looking in facingDir
+                      drawArc(Color(0xFFFACC15), 180f, 180f, true, Offset(wC * 0.20f, hC * 0.07f), Size(wC * 0.60f, hC * 0.40f))
+                      drawRoundRect(Color(0xFFFDE047), Offset(wC * 0.16f, hC * 0.24f), Size(wC * 0.68f, hC * 0.07f), CornerRadius(3f))
+                      drawRoundRect(Color(0xFF0F172A), Offset(wC * 0.26f, hC * 0.29f), Size(wC * 0.48f, hC * 0.20f), CornerRadius(5f))
                       val eyeShift = facingDir.first * (wC * 0.08f)
-                      val eyeY = hC * 0.36f + facingDir.second * (hC * 0.04f)
-                      drawCircle(Color(0xFF4CE8C8), wC * 0.06f, Offset(wC * 0.42f + eyeShift, eyeY))
-                      drawCircle(Color(0xFF4CE8C8), wC * 0.06f, Offset(wC * 0.58f + eyeShift, eyeY))
+                      val eyeY = hC * 0.39f + facingDir.second * (hC * 0.03f)
+                      drawCircle(Color(0xFF4CE8C8), wC * 0.06f, Offset(wC * 0.41f + eyeShift, eyeY))
+                      drawCircle(Color(0xFF4CE8C8), wC * 0.06f, Offset(wC * 0.59f + eyeShift, eyeY))
                     }
                   }
                   isCrate -> {
-                    // Sculpted Cargo Crate Model with X-Bracing
-                    Canvas(modifier = Modifier.fillMaxSize(0.86f)) {
+                    // Sculpted Cargo Crate Model with X-Bracing & Steel Corner Rivets
+                    Canvas(modifier = Modifier.fillMaxSize(0.88f)) {
                       val base = if (isGoal) Color(0xFF22C55E) else Color(0xFFD97706)
-                      val frame = if (isGoal) Color(0xFF15803D) else Color(0xFF92400E)
+                      val frame = if (isGoal) Color(0xFF14532D) else Color(0xFF78350F)
                       drawRoundRect(base, Offset.Zero, size, CornerRadius(6f))
+                      drawRoundRect(Color(0x35FFFFFF), Offset.Zero, Size(size.width, size.height * 0.18f), CornerRadius(6f))
                       drawRoundRect(frame, Offset.Zero, size, CornerRadius(6f), style = Stroke(width = 3.5f))
                       drawLine(frame, Offset(3f, 3f), Offset(size.width - 3f, size.height - 3f), 3f)
                       drawLine(frame, Offset(size.width - 3f, 3f), Offset(3f, size.height - 3f), 3f)
+                      val rCol = Color(0xFFE2E8F0)
+                      drawCircle(rCol, 2.2f, Offset(5f, 5f))
+                      drawCircle(rCol, 2.2f, Offset(size.width - 5f, 5f))
+                      drawCircle(rCol, 2.2f, Offset(5f, size.height - 5f))
+                      drawCircle(rCol, 2.2f, Offset(size.width - 5f, size.height - 5f))
                     }
                   }
-                  isGoal -> Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(Color(0xFF4CE8C8)))
+                  isGoal -> {
+                    Canvas(modifier = Modifier.fillMaxSize(0.60f)) {
+                      drawCircle(Color(0x354CE8C8), size.minDimension * 0.46f, center, style = Stroke(2.5f))
+                      drawCircle(Color(0xFF4CE8C8), size.minDimension * 0.22f, center)
+                    }
+                  }
                 }
               }
             }
@@ -517,7 +723,7 @@ fun CrateSokobanGame(
     }
 
     if (won) {
-      Button(onClick = { roomIdx++ }) { Text("Room Cleared! Next Warehouse") }
+      Button(onClick = { startRoom(roomIdx + 1) }) { Text("Room Cleared! Next Warehouse") }
     }
   }
 }
@@ -527,10 +733,54 @@ fun CrateSokobanGame(
 fun QueensGridGame(
   onAwardXp: (Int, Int?, String?) -> Unit,
   modifier: Modifier = Modifier,
+  savedStateJson: String? = null,
+  onRegisterQuickResumeProvider: ((() -> Pair<String, String>?) -> Unit) = {},
 ) {
-  var boardN by remember { mutableIntStateOf(6) }
-  var queens by remember(boardN) { mutableStateOf(emptySet<Pair<Int, Int>>()) }
-  var won by remember(boardN) { mutableStateOf(false) }
+  val initialSnapshot = remember(savedStateJson) {
+    if (savedStateJson.isNullOrBlank()) null
+    else runCatching {
+      val obj = JSONObject(savedStateJson)
+      val n = obj.optInt("n", 6).let { if (it == 8) 8 else 6 }
+      val qArr = obj.getJSONArray("queens")
+      val qs = buildSet {
+        for (i in 0 until qArr.length()) {
+          val pair = qArr.getJSONArray(i)
+          add(pair.getInt(0) to pair.getInt(1))
+        }
+      }
+      n to qs
+    }.getOrNull()
+  }
+
+  var boardN by remember(savedStateJson) { mutableIntStateOf(initialSnapshot?.first ?: 6) }
+  var queens by remember(savedStateJson) { mutableStateOf(initialSnapshot?.second ?: emptySet<Pair<Int, Int>>()) }
+  var won by remember(savedStateJson) { mutableStateOf(false) }
+
+  fun startQueens(n: Int) {
+    boardN = n
+    queens = emptySet()
+    won = false
+  }
+
+  val latestN by rememberUpdatedState(boardN)
+  val latestQueens by rememberUpdatedState(queens)
+  val latestWon by rememberUpdatedState(won)
+
+  DisposableEffect(onRegisterQuickResumeProvider) {
+    onRegisterQuickResumeProvider {
+      if (latestWon || latestQueens.isEmpty()) null
+      else {
+        val obj = JSONObject().apply {
+          put("n", latestN)
+          val qArr = JSONArray()
+          latestQueens.forEach { (r, c) -> qArr.put(JSONArray().apply { put(r); put(c) }) }
+          put("queens", qArr)
+        }
+        "${latestN}×${latestN} · ${latestQueens.size} Queens" to obj.toString()
+      }
+    }
+    onDispose {}
+  }
 
   fun isAttacked(r: Int, c: Int): Boolean =
     queens.any { (qr, qc) ->
@@ -543,11 +793,11 @@ fun QueensGridGame(
     verticalArrangement = Arrangement.spacedBy(12.dp),
   ) {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-      FilterChip(selected = boardN == 6, onClick = { boardN = 6 }, label = { Text("6×6") })
-      FilterChip(selected = boardN == 8, onClick = { boardN = 8 }, label = { Text("8×8") })
+      FilterChip(selected = boardN == 6, onClick = { startQueens(6) }, label = { Text("6×6") })
+      FilterChip(selected = boardN == 8, onClick = { startQueens(8) }, label = { Text("8×8") })
       Spacer(Modifier.weight(1f))
       Text("QUEENS ${queens.size}/$boardN", style = MaterialTheme.typography.labelMedium)
-      OutlinedButton(onClick = { queens = emptySet(); won = false }) { Text("Clear") }
+      OutlinedButton(onClick = { startQueens(boardN) }) { Text("Clear") }
     }
 
     Text("Place $boardN Queens so none attack along any row, column, or diagonal.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -564,6 +814,7 @@ fun QueensGridGame(
               val hasQ = (r to c) in queens
               val darkSq = (r + c) % 2 == 1
               val clash = hasQ && isAttacked(r, c)
+              val isThreatened = !hasQ && queens.isNotEmpty() && isAttacked(r, c)
               Box(
                 contentAlignment = Alignment.Center,
                 modifier =
@@ -572,10 +823,14 @@ fun QueensGridGame(
                     .fillMaxSize()
                     .background(
                       when {
-                        clash -> MaterialTheme.colorScheme.error.copy(alpha = 0.55f)
-                        darkSq -> MaterialTheme.colorScheme.surfaceVariant
-                        else -> MaterialTheme.colorScheme.surface
+                        clash -> Color(0x88EF4444)
+                        darkSq -> Color(0xFF1E293B)
+                        else -> Color(0xFF334155)
                       }
+                    )
+                    .border(
+                      width = if (clash) 1.5.dp else 0.3.dp,
+                      color = if (clash) Color(0xFFFCA5A5) else Color(0x18FFFFFF),
                     )
                     .clickable(enabled = !won) {
                       val next = if (hasQ) queens - (r to c) else queens + (r to c)
@@ -592,10 +847,13 @@ fun QueensGridGame(
                       }
                     },
               ) {
+                if (isThreatened) {
+                  Box(modifier = Modifier.size(5.dp).clip(CircleShape).background(Color(0x444CE8C8)))
+                }
                 if (hasQ) {
-                  val crownFill = if (clash) Color(0xFFFCA5A5) else MaterialTheme.colorScheme.primary
-                  val crownRim = if (clash) Color.White else MaterialTheme.colorScheme.onPrimary
-                  Canvas(modifier = Modifier.fillMaxSize(0.72f)) {
+                  val crownFill = if (clash) Color(0xFFFCA5A5) else Color(0xFFFFC857)
+                  val crownRim = if (clash) Color.White else Color(0xFFFEF08A)
+                  Canvas(modifier = Modifier.fillMaxSize(0.76f)) {
                     val wC = size.width; val hC = size.height
                     val crown = Path().apply {
                       moveTo(wC * 0.16f, hC * 0.80f)
@@ -608,8 +866,12 @@ fun QueensGridGame(
                       close()
                     }
                     drawPath(crown, crownFill)
-                    drawPath(crown, crownRim, style = Stroke(width = 2f, cap = StrokeCap.Round, join = StrokeJoin.Round))
-                    drawCircle(crownRim, wC * 0.06f, Offset(wC * 0.50f, hC * 0.14f))
+                    drawPath(crown, crownRim, style = Stroke(width = 2.2f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+                    drawRect(Color(0x8892400E), Offset(wC * 0.18f, hC * 0.72f), Size(wC * 0.64f, hC * 0.08f))
+                    // Jewel tips
+                    drawCircle(if (clash) Color(0xFFEF4444) else Color(0xFF4CE8C8), wC * 0.075f, Offset(wC * 0.50f, hC * 0.14f))
+                    drawCircle(crownRim, wC * 0.055f, Offset(wC * 0.10f, hC * 0.28f))
+                    drawCircle(crownRim, wC * 0.055f, Offset(wC * 0.90f, hC * 0.28f))
                   }
                 }
               }

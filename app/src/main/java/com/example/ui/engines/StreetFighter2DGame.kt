@@ -35,6 +35,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -42,6 +43,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -67,6 +69,7 @@ import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.random.Random
+import org.json.JSONObject
 
 data class FighterArchetype(
   val id: String,
@@ -151,6 +154,57 @@ private data class ArenaProjectile(
 
 private data class HitSpark(val x: Float, val y: Float, val color: Color, val life: Float)
 
+private data class SavedFighterArenaSnapshot(
+  val friendMode: Boolean,
+  val p1Id: String,
+  val p2Id: String,
+  val roundNumber: Int,
+  val playerWins: Int,
+  val enemyWins: Int,
+  val pX: Float,
+  val pY: Float,
+  val pHp: Float,
+  val pMaxHp: Float,
+  val pMeter: Float,
+  val pFacing: Int,
+  val eX: Float,
+  val eY: Float,
+  val eHp: Float,
+  val eMaxHp: Float,
+  val eMeter: Float,
+  val eFacing: Int,
+)
+
+private fun parseFighterArenaSnapshot(json: String?): SavedFighterArenaSnapshot? {
+  if (json.isNullOrBlank()) return null
+  return runCatching {
+    val obj = JSONObject(json)
+    if (!obj.optBoolean("inArena", false)) return null
+    val p1Id = obj.optString("p1Id", "kai").takeIf { id -> STREET_FIGHTERS.any { it.id == id } } ?: "kai"
+    val p2Id = obj.optString("p2Id", "mira").takeIf { id -> STREET_FIGHTERS.any { it.id == id } } ?: "mira"
+    SavedFighterArenaSnapshot(
+      friendMode = obj.optBoolean("friend", false),
+      p1Id = p1Id,
+      p2Id = p2Id,
+      roundNumber = obj.optInt("round", 1).coerceAtLeast(1),
+      playerWins = obj.optInt("pWins", 0).coerceIn(0, 1),
+      enemyWins = obj.optInt("eWins", 0).coerceIn(0, 1),
+      pX = obj.optDouble("pX", 220.0).toFloat().coerceIn(60f, 940f),
+      pY = obj.optDouble("pY", 0.0).toFloat(),
+      pHp = obj.optDouble("pHp", 100.0).toFloat().coerceAtLeast(1f),
+      pMaxHp = obj.optDouble("pMaxHp", 110.0).toFloat().coerceAtLeast(1f),
+      pMeter = obj.optDouble("pMeter", 25.0).toFloat().coerceIn(0f, 100f),
+      pFacing = obj.optInt("pFacing", 1),
+      eX = obj.optDouble("eX", 780.0).toFloat().coerceIn(60f, 940f),
+      eY = obj.optDouble("eY", 0.0).toFloat(),
+      eHp = obj.optDouble("eHp", 100.0).toFloat().coerceAtLeast(1f),
+      eMaxHp = obj.optDouble("eMaxHp", 110.0).toFloat().coerceAtLeast(1f),
+      eMeter = obj.optDouble("eMeter", 25.0).toFloat().coerceIn(0f, 100f),
+      eFacing = obj.optInt("eFacing", -1),
+    )
+  }.getOrNull()
+}
+
 @Composable
 fun StreetFighter2DGame(
   vaultCredits: Int,
@@ -159,13 +213,21 @@ fun StreetFighter2DGame(
   onUpgradeStat: (String, FighterStat, Int) -> Unit,
   onAwardXp: (Int, Int?, String?) -> Unit,
   modifier: Modifier = Modifier,
+  savedStateJson: String? = null,
+  onRegisterQuickResumeProvider: ((() -> Pair<String, String>?) -> Unit) = {},
 ) {
-  var friendMode by remember { mutableStateOf(false) }
-  var selectedFighterId by remember { mutableStateOf("kai") }
-  var p2FighterId by remember { mutableStateOf("mira") }
-  var inArena by remember { mutableStateOf(false) }
+  val initialSnapshot = remember(savedStateJson) { parseFighterArenaSnapshot(savedStateJson) }
+  var friendMode by remember(savedStateJson) { mutableStateOf(initialSnapshot?.friendMode ?: false) }
+  var selectedFighterId by remember(savedStateJson) { mutableStateOf(initialSnapshot?.p1Id ?: "kai") }
+  var p2FighterId by remember(savedStateJson) { mutableStateOf(initialSnapshot?.p2Id ?: "mira") }
+  var inArena by remember(savedStateJson) { mutableStateOf(initialSnapshot != null) }
+  var activeSnapshot by remember(savedStateJson) { mutableStateOf(initialSnapshot) }
 
   if (!inArena) {
+    DisposableEffect(onRegisterQuickResumeProvider) {
+      onRegisterQuickResumeProvider { null }
+      onDispose {}
+    }
     FighterSelectAndUpgradeScreen(
       friendMode = friendMode,
       selectedFighterId = selectedFighterId,
@@ -176,7 +238,10 @@ fun StreetFighter2DGame(
       onSelectFighter = { selectedFighterId = it },
       onSelectP2Fighter = { p2FighterId = it },
       onUpgradeStat = onUpgradeStat,
-      onStartFight = { inArena = true },
+      onStartFight = {
+        activeSnapshot = null
+        inArena = true
+      },
       modifier = modifier,
     )
   } else {
@@ -195,7 +260,12 @@ fun StreetFighter2DGame(
       p2Upgrades = p2Upgrades,
       leftHandedHud = leftHandedHud,
       onAwardXp = onAwardXp,
-      onExitToArmory = { inArena = false },
+      onExitToArmory = {
+        activeSnapshot = null
+        inArena = false
+      },
+      initialSnapshot = activeSnapshot,
+      onRegisterQuickResumeProvider = onRegisterQuickResumeProvider,
       modifier = modifier,
     )
   }
@@ -422,6 +492,8 @@ private fun StreetFighterArena(
   leftHandedHud: Boolean,
   onAwardXp: (Int, Int?, String?) -> Unit,
   onExitToArmory: () -> Unit,
+  initialSnapshot: SavedFighterArenaSnapshot? = null,
+  onRegisterQuickResumeProvider: ((() -> Pair<String, String>?) -> Unit) = {},
   modifier: Modifier = Modifier,
 ) {
   val playerMaxHp = (playerArch.baseHp + (upgrades.healthLevel - 1) * 18).toFloat()
@@ -432,10 +504,15 @@ private fun StreetFighterArena(
   val p2AtkMul = 1f + (p2Upgrades.attackLevel - 1) * 0.18f
   val p2SpdMul = 1f + (p2Upgrades.speedLevel - 1) * 0.10f
 
-  var playerWins by remember { mutableIntStateOf(0) }
-  var enemyWins by remember { mutableIntStateOf(0) }
-  var roundNumber by remember { mutableIntStateOf(1) }
-  var matchBanner by remember { mutableStateOf("ROUND 1 · FIGHT!") }
+  var playerWins by remember(initialSnapshot) { mutableIntStateOf(initialSnapshot?.playerWins ?: 0) }
+  var enemyWins by remember(initialSnapshot) { mutableIntStateOf(initialSnapshot?.enemyWins ?: 0) }
+  var roundNumber by remember(initialSnapshot) { mutableIntStateOf(initialSnapshot?.roundNumber ?: 1) }
+  var matchBanner by remember(initialSnapshot) {
+    mutableStateOf(
+      if (initialSnapshot != null) "RESUMED ROUND ${initialSnapshot.roundNumber} · FIGHT!"
+      else "ROUND 1 · FIGHT!"
+    )
+  }
   var matchOver by remember { mutableStateOf(false) }
   var animTime by remember { mutableFloatStateOf(0f) }
 
@@ -477,8 +554,38 @@ private fun StreetFighterArena(
     }
   }
 
-  var pState by remember { mutableStateOf(initialPlayer()) }
-  var eState by remember { mutableStateOf(initialEnemy(1)) }
+  var pState by remember(initialSnapshot) {
+    mutableStateOf(
+      if (initialSnapshot != null) {
+        initialPlayer().copy(
+          x = initialSnapshot.pX,
+          y = initialSnapshot.pY,
+          hp = initialSnapshot.pHp.coerceAtMost(playerMaxHp),
+          maxHp = playerMaxHp,
+          meter = initialSnapshot.pMeter,
+          facing = initialSnapshot.pFacing,
+        )
+      } else {
+        initialPlayer()
+      }
+    )
+  }
+  var eState by remember(initialSnapshot) {
+    mutableStateOf(
+      if (initialSnapshot != null) {
+        val base = initialEnemy(initialSnapshot.roundNumber)
+        base.copy(
+          x = initialSnapshot.eX,
+          y = initialSnapshot.eY,
+          hp = initialSnapshot.eHp.coerceAtMost(base.maxHp),
+          meter = initialSnapshot.eMeter,
+          facing = initialSnapshot.eFacing,
+        )
+      } else {
+        initialEnemy(1)
+      }
+    )
+  }
   val projectiles = remember { mutableStateListOf<ArenaProjectile>() }
   val sparks = remember { mutableStateListOf<HitSpark>() }
 
@@ -493,6 +600,45 @@ private fun StreetFighterArena(
   var aiDecisionTimer by remember { mutableFloatStateOf(0.25f) }
   var aiDesiredDir by remember { mutableIntStateOf(-1) }
   var roundPauseTimer by remember { mutableFloatStateOf(0f) }
+
+  val latestMatchOver by rememberUpdatedState(matchOver)
+  val latestRound by rememberUpdatedState(roundNumber)
+  val latestPWins by rememberUpdatedState(playerWins)
+  val latestEWins by rememberUpdatedState(enemyWins)
+  val latestP by rememberUpdatedState(pState)
+  val latestE by rememberUpdatedState(eState)
+
+  DisposableEffect(onRegisterQuickResumeProvider, friendMode, playerArch, enemyArch) {
+    onRegisterQuickResumeProvider {
+      if (latestMatchOver) {
+        null
+      } else {
+        val obj = JSONObject().apply {
+          put("inArena", true)
+          put("friend", friendMode)
+          put("p1Id", playerArch.id)
+          put("p2Id", enemyArch.id)
+          put("round", latestRound)
+          put("pWins", latestPWins)
+          put("eWins", latestEWins)
+          put("pX", latestP.x.toDouble())
+          put("pY", latestP.y.toDouble())
+          put("pHp", latestP.hp.toDouble())
+          put("pMaxHp", latestP.maxHp.toDouble())
+          put("pMeter", latestP.meter.toDouble())
+          put("pFacing", latestP.facing)
+          put("eX", latestE.x.toDouble())
+          put("eY", latestE.y.toDouble())
+          put("eHp", latestE.hp.toDouble())
+          put("eMaxHp", latestE.maxHp.toDouble())
+          put("eMeter", latestE.meter.toDouble())
+          put("eFacing", latestE.facing)
+        }
+        "${playerArch.name} vs ${enemyArch.name} · Rd $latestRound ($latestPWins-$latestEWins)" to obj.toString()
+      }
+    }
+    onDispose {}
+  }
 
   fun resetMatch() {
     playerWins = 0
@@ -857,23 +1003,27 @@ private fun StreetFighterArena(
         val groundY = size.height * 0.80f
 
         // Background dojo sky & crescent moon / sun + torii silhouette
-        drawRect(Brush.verticalGradient(listOf(Color(0xFF101524), Color(0xFF1E2238), Color(0xFF0E131D))), size = Size(size.width, groundY))
-        drawCircle(Color(0xFFFF5C7C).copy(alpha = 0.24f), size.minDimension * 0.20f, Offset(size.width * 0.5f, groundY * 0.42f))
+        drawRect(Brush.verticalGradient(listOf(Color(0xFF0B0F1A), Color(0xFF1D223A), Color(0xFF0C101A))), size = Size(size.width, groundY))
+        drawCircle(Brush.radialGradient(listOf(Color(0x44FF5C7C), Color.Transparent), Offset(size.width * 0.5f, groundY * 0.42f), size.minDimension * 0.28f), size.minDimension * 0.28f, Offset(size.width * 0.5f, groundY * 0.42f))
         // Dojo pillars & beam
-        drawRect(Color(0xFF161A29), Offset(size.width * 0.14f, groundY * 0.18f), Size(14f, groundY * 0.82f))
-        drawRect(Color(0xFF161A29), Offset(size.width * 0.84f, groundY * 0.18f), Size(14f, groundY * 0.82f))
-        drawRoundRect(Color(0xFF21263B), Offset(size.width * 0.08f, groundY * 0.16f), Size(size.width * 0.84f, 12f), CornerRadius(6f))
-        // Swaying Paper Lanterns
+        drawRect(Color(0xFF161A29), Offset(size.width * 0.14f, groundY * 0.18f), Size(16f, groundY * 0.82f))
+        drawRect(Color(0xFF283048), Offset(size.width * 0.14f, groundY * 0.18f), Size(5f, groundY * 0.82f))
+        drawRect(Color(0xFF161A29), Offset(size.width * 0.84f, groundY * 0.18f), Size(16f, groundY * 0.82f))
+        drawRect(Color(0xFF283048), Offset(size.width * 0.84f, groundY * 0.18f), Size(5f, groundY * 0.82f))
+        drawRoundRect(Color(0xFF232A42), Offset(size.width * 0.08f, groundY * 0.16f), Size(size.width * 0.84f, 13f), CornerRadius(6f))
+        // Swaying Paper Lanterns with warm radial halos
         val sway = sin(animTime * 2.2f) * 6f
         listOf(0.24f, 0.76f).forEach { xf ->
           val lx = size.width * xf + sway
           drawLine(Color(0xFF94A3B8), Offset(size.width * xf, groundY * 0.19f), Offset(lx, groundY * 0.28f), 2f)
-          drawOval(Color(0xFFFF9F43).copy(alpha = 0.85f), Offset(lx - 11f, groundY * 0.28f), Size(22f, 28f))
+          drawCircle(Brush.radialGradient(listOf(Color(0x55FF9F43), Color.Transparent), Offset(lx, groundY * 0.31f), 38f), 38f, Offset(lx, groundY * 0.31f))
+          drawOval(Color(0xFFFF9F43).copy(alpha = 0.92f), Offset(lx - 11f, groundY * 0.28f), Size(22f, 28f))
+          drawOval(Color(0xFFFDE047).copy(alpha = 0.55f), Offset(lx - 6f, groundY * 0.295f), Size(12f, 16f))
         }
 
-        // Dojo wooden floor with perspective planks
-        drawRect(Color(0xFF1B202E), Offset(0f, groundY), Size(size.width, size.height - groundY))
-        drawLine(Color(0xFF4CE8C8).copy(alpha = 0.55f), Offset(0f, groundY), Offset(size.width, groundY), 4f)
+        // Dojo wooden floor with perspective planks & neon arena edge
+        drawRect(Brush.verticalGradient(listOf(Color(0xFF1E2536), Color(0xFF131823)), startY = groundY, endY = size.height), Offset(0f, groundY), Size(size.width, size.height - groundY))
+        drawLine(Color(0xFF4CE8C8).copy(alpha = 0.70f), Offset(0f, groundY), Offset(size.width, groundY), 4.5f)
         for (i in 1..7) {
           val xTop = size.width * (i / 8f)
           val xBot = size.width * 0.5f + (xTop - size.width * 0.5f) * 1.45f
@@ -906,28 +1056,28 @@ private fun StreetFighterArena(
           val py = groundY + pr.y * (size.height / 500f)
           val dir = if (pr.vx >= 0f) 1f else -1f
           val pulse = 1f + sin(pr.age * 24f) * 0.16f
-          // Flame / trail tail
           val tail = Path().apply {
-            moveTo(px + dir * 18f, py)
-            lineTo(px - dir * 36f, py - 14f * pulse)
-            lineTo(px - dir * 24f, py)
-            lineTo(px - dir * 36f, py + 14f * pulse)
+            moveTo(px + dir * 20f, py)
+            lineTo(px - dir * 42f, py - 15f * pulse)
+            lineTo(px - dir * 26f, py)
+            lineTo(px - dir * 42f, py + 15f * pulse)
             close()
           }
-          drawPath(tail, pr.color.copy(alpha = 0.65f))
-          drawCircle(pr.color.copy(alpha = 0.32f), 26f * pulse, Offset(px, py))
-          drawCircle(pr.color, 14f * pulse, Offset(px, py))
-          drawCircle(Color.White, 6f, Offset(px + dir * 4f, py))
+          drawPath(tail, pr.color.copy(alpha = 0.7f))
+          drawCircle(pr.color.copy(alpha = 0.35f), 28f * pulse, Offset(px, py))
+          drawCircle(pr.color, 15f * pulse, Offset(px, py))
+          drawCircle(Color.White, 6.5f, Offset(px + dir * 4f, py))
         }
 
-        // Hit Sparks star-bursts
+        // Hit Sparks star-bursts & shockwave ring
         sparks.forEach { sp ->
           val alpha = (sp.life / 0.30f).coerceIn(0f, 1f)
           val cx = sp.x * sx
           val cy = groundY + sp.y * (size.height / 500f)
-          val r = 28f * (1.2f - alpha * 0.4f)
-          for (a in 0 until 6) {
-            val ang = a * (Math.PI / 3.0) + alpha * 1.5
+          val r = 32f * (1.25f - alpha * 0.4f)
+          drawCircle(sp.color.copy(alpha = alpha * 0.45f), r * 1.15f, Offset(cx, cy), style = Stroke(width = 3f))
+          for (a in 0 until 8) {
+            val ang = a * (Math.PI / 4.0) + alpha * 1.6
             drawLine(
               sp.color.copy(alpha = alpha),
               Offset(cx, cy),
@@ -936,7 +1086,7 @@ private fun StreetFighterArena(
               cap = StrokeCap.Round,
             )
           }
-          drawCircle(Color.White.copy(alpha = alpha), 8f, Offset(cx, cy))
+          drawCircle(Color.White.copy(alpha = alpha), 9f, Offset(cx, cy))
         }
       }
 
@@ -994,12 +1144,15 @@ private fun DrawScope.drawArticulatedFighter(
   val skin = Color(0xFFF3D2B3)
   val darkArmor = Color(0xFF131926)
 
-  // Ground shadow stays on floor even when jumping
+  // Ground shadow + faint fighter aura
   drawOval(
-    Color.Black.copy(alpha = 0.42f),
-    Offset(cx - bodyH * 0.26f, floorY - 7f),
-    Size(bodyH * 0.52f, 14f),
+    Color.Black.copy(alpha = 0.45f),
+    Offset(cx - bodyH * 0.28f, floorY - 7f),
+    Size(bodyH * 0.56f, 15f),
   )
+  if (f.meter >= 50f) {
+    drawCircle(accent.copy(alpha = 0.14f + sin(animTime * 8f) * 0.05f), bodyH * 0.46f, Offset(cx, groundY - bodyH * 0.48f))
+  }
 
   val breath = sin(animTime * 5f + if (dir > 0) 0f else 1.5f) * (bodyH * 0.018f)
   val isAir = f.y < -4f
@@ -1027,7 +1180,7 @@ private fun DrawScope.drawArticulatedFighter(
     }
 
   rotate(degrees = leanAngle, pivot = Offset(cx, groundY - bodyH * 0.1f)) {
-    // 1. Back Leg
+    // 1. Back Leg & Armored Boot
     val backFootX = cx - dir * bodyH * 0.14f - stride * bodyH * 0.18f * dir
     val backFootY = if (isAir) groundY - bodyH * 0.14f else groundY
     val backKneeX = (cx + backFootX) * 0.5f + dir * bodyH * 0.04f
@@ -1036,7 +1189,7 @@ private fun DrawScope.drawArticulatedFighter(
     drawLine(darkArmor.copy(alpha = 0.9f), Offset(backKneeX, backKneeY), Offset(backFootX, backFootY - 4f), limbW * 0.92f, StrokeCap.Round)
     drawRoundRect(accent, Offset(backFootX - 8f, backFootY - 9f), Size(18f, 9f), CornerRadius(4f))
 
-    // 2. Back Arm (punches or braces)
+    // 2. Back Arm & Wristband
     val bShoulder = Offset(cx - dir * bodyH * 0.08f, shoulderY + 4f)
     val bHand =
       when {
@@ -1045,7 +1198,8 @@ private fun DrawScope.drawArticulatedFighter(
         else -> Offset(cx + dir * bodyH * 0.14f - stride * bodyH * 0.14f * dir, shoulderY + bodyH * 0.11f)
       }
     drawLine(skin, bShoulder, bHand, limbW * 0.78f, StrokeCap.Round)
-    drawCircle(accent, limbW * 0.58f, bHand)
+    drawCircle(accent, limbW * 0.62f, bHand)
+    drawCircle(Color.White.copy(alpha = 0.35f), limbW * 0.25f, bHand)
 
     // 3. Front Leg (or High Side-Kick!)
     if (f.action == MoveAction.KICK) {
@@ -1054,16 +1208,15 @@ private fun DrawScope.drawArticulatedFighter(
       val kickFoot = Offset(cx + dir * kickReach, hipY - bodyH * 0.15f)
       drawLine(primary, Offset(cx, hipY), kneePos, limbW * 1.05f, StrokeCap.Round)
       drawLine(darkArmor, kneePos, kickFoot, limbW * 0.96f, StrokeCap.Round)
-      drawCircle(accent, limbW * 0.65f, kickFoot)
-      // Kick slash arc
+      drawCircle(accent, limbW * 0.68f, kickFoot)
       drawArc(
-        color = accent.copy(alpha = 0.65f * attackSnap),
+        color = accent.copy(alpha = 0.75f * attackSnap),
         startAngle = if (dir > 0) -35f else 145f,
         sweepAngle = 70f,
         useCenter = false,
         topLeft = Offset(cx - kickReach * 0.8f, hipY - bodyH * 0.35f),
         size = Size(kickReach * 1.6f, bodyH * 0.45f),
-        style = Stroke(width = 5f, cap = StrokeCap.Round),
+        style = Stroke(width = 5.5f, cap = StrokeCap.Round),
       )
     } else {
       val frontFootX = cx + dir * bodyH * 0.15f + stride * bodyH * 0.18f * dir
@@ -1075,7 +1228,7 @@ private fun DrawScope.drawArticulatedFighter(
       drawRoundRect(accent, Offset(frontFootX - 8f, frontFootY - 9f), Size(18f, 9f), CornerRadius(4f))
     }
 
-    // 4. Sculpted Torso / Character Armor
+    // 4. Sculpted Torso / Character Armor with rim highlight
     val torsoW = if (f.archetype.id == "titan") bodyH * 0.30f else bodyH * 0.23f
     val torsoPath = Path().apply {
       moveTo(cx - torsoW * 0.56f, shoulderY)
@@ -1085,26 +1238,28 @@ private fun DrawScope.drawArticulatedFighter(
       close()
     }
     drawPath(torsoPath, primary)
+    drawPath(torsoPath, Color.White.copy(alpha = 0.28f), style = Stroke(width = 2f))
 
     // Character-specific outfit details
     when (f.archetype.id) {
       "kai" -> {
-        // Martial arts V-lapel & black belt sash
         drawLine(Color(0xFF0F172A), Offset(cx - torsoW * 0.22f, shoulderY), Offset(cx + dir * 2f, hipY - 4f), 4f)
         drawLine(Color(0xFF0F172A), Offset(cx + torsoW * 0.22f, shoulderY), Offset(cx + dir * 2f, hipY - 4f), 4f)
         drawRect(Color(0xFF0F172A), Offset(cx - torsoW * 0.42f, hipY - 6f), Size(torsoW * 0.84f, 7f))
+        drawRect(accent, Offset(cx - 3f, hipY - 6f), Size(6f, 7f))
       }
       "mira" -> {
-        // Cyber-ninja core stripe & glowing chest node
         drawRect(darkArmor, Offset(cx - torsoW * 0.35f, shoulderY + 6f), Size(torsoW * 0.70f, bodyH * 0.20f))
-        drawCircle(accent, bodyH * 0.045f, Offset(cx + dir * 3f, shoulderY + bodyH * 0.14f))
+        drawCircle(accent, bodyH * 0.048f, Offset(cx + dir * 3f, shoulderY + bodyH * 0.14f))
+        drawCircle(Color.White.copy(alpha = 0.8f), bodyH * 0.02f, Offset(cx + dir * 3f, shoulderY + bodyH * 0.14f))
       }
       "titan" -> {
-        // Heavy X-harness chestplate & spiked pauldrons
         drawLine(accent, Offset(cx - torsoW * 0.48f, shoulderY + 2f), Offset(cx + torsoW * 0.38f, hipY), 5f)
         drawLine(accent, Offset(cx + torsoW * 0.48f, shoulderY + 2f), Offset(cx - torsoW * 0.38f, hipY), 5f)
         drawCircle(darkArmor, bodyH * 0.085f, Offset(cx - torsoW * 0.52f, shoulderY + 4f))
         drawCircle(darkArmor, bodyH * 0.085f, Offset(cx + torsoW * 0.52f, shoulderY + 4f))
+        drawCircle(accent, bodyH * 0.03f, Offset(cx - torsoW * 0.52f, shoulderY + 4f))
+        drawCircle(accent, bodyH * 0.03f, Offset(cx + torsoW * 0.52f, shoulderY + 4f))
       }
     }
 
@@ -1114,7 +1269,6 @@ private fun DrawScope.drawArticulatedFighter(
 
     when (f.archetype.id) {
       "kai" -> {
-        // Spiky flame hair + fluttering headband ribbons
         val hair = Path().apply {
           moveTo(cx - headR * 1.1f, headY - headR * 0.2f)
           lineTo(cx - headR * 0.9f, headY - headR * 1.25f)
@@ -1130,14 +1284,12 @@ private fun DrawScope.drawArticulatedFighter(
         drawLine(accent, Offset(cx - dir * headR, headY - headR * 0.3f), Offset(cx - dir * (headR + 18f), headY - 4f + ribbonWave), 4f, StrokeCap.Round)
       }
       "mira" -> {
-        // Cyber-visor goggles + animated ponytail
         drawArc(Color(0xFF0F172A), 180f, 180f, true, Offset(cx - headR * 1.02f, headY - headR * 1.05f), Size(headR * 2.04f, headR * 1.4f))
         val tailWave = sin(animTime * 9f + f.walkPhase) * 6f
         drawLine(accent, Offset(cx - dir * headR * 0.9f, headY - headR * 0.4f), Offset(cx - dir * (headR + 20f), headY + 4f + tailWave), 6f, StrokeCap.Round)
         drawRoundRect(accent, Offset(cx + (if (dir > 0) 0f else -headR * 0.95f), headY - headR * 0.25f), Size(headR * 0.95f, headR * 0.36f), CornerRadius(4f))
       }
       "titan" -> {
-        // Horned juggernaut helmet + glowing visor slit
         drawCircle(darkArmor, headR * 1.08f, Offset(cx, headY - 2f))
         val lHorn = Path().apply {
           moveTo(cx - headR * 0.7f, headY - headR * 0.6f)
@@ -1157,7 +1309,6 @@ private fun DrawScope.drawArticulatedFighter(
       }
     }
 
-    // Fierce eyes for non-visored Kai
     if (f.archetype.id == "kai") {
       drawCircle(Color(0xFF0F172A), 2.5f, Offset(cx + dir * headR * 0.45f, headY - 1f))
     }
@@ -1169,15 +1320,16 @@ private fun DrawScope.drawArticulatedFighter(
         val punchX = cx + dir * bodyH * (0.20f + 0.36f * attackSnap)
         val fist = Offset(punchX, shoulderY + 2f)
         drawLine(skin, fShoulder, fist, limbW * 0.85f, StrokeCap.Round)
-        drawCircle(accent, limbW * 0.78f, fist)
+        drawCircle(accent, limbW * 0.82f, fist)
+        drawCircle(Color.White.copy(alpha = 0.5f), limbW * 0.35f, fist)
         if (attackSnap > 0.4f) {
-          drawLine(Color.White.copy(alpha = 0.7f), Offset(cx + dir * bodyH * 0.18f, shoulderY + 2f), fist, 3f)
+          drawLine(Color.White.copy(alpha = 0.75f), Offset(cx + dir * bodyH * 0.18f, shoulderY + 2f), fist, 3.5f)
         }
       }
       f.action == MoveAction.SPECIAL -> {
         val thrust = Offset(cx + dir * bodyH * 0.36f, shoulderY + 6f)
         drawLine(skin, fShoulder, thrust, limbW * 0.85f, StrokeCap.Round)
-        drawCircle(accent, limbW * 0.85f, thrust)
+        drawCircle(accent, limbW * 0.88f, thrust)
       }
       f.blocking -> {
         val guardHand = Offset(cx + dir * bodyH * 0.18f, shoulderY - bodyH * 0.06f)
@@ -1189,7 +1341,7 @@ private fun DrawScope.drawArticulatedFighter(
         val guardFist = Offset(cx + dir * bodyH * 0.22f, shoulderY + bodyH * 0.06f - breath * 0.8f)
         drawLine(skin, fShoulder, elbow, limbW * 0.8f, StrokeCap.Round)
         drawLine(skin, elbow, guardFist, limbW * 0.8f, StrokeCap.Round)
-        drawCircle(accent, limbW * 0.66f, guardFist)
+        drawCircle(accent, limbW * 0.68f, guardFist)
       }
     }
   }
@@ -1197,12 +1349,12 @@ private fun DrawScope.drawArticulatedFighter(
   // Energy Shield Hex Ring on Block
   if (f.blocking) {
     drawCircle(
-      color = Color(0xFF38BDF8).copy(alpha = 0.25f),
+      color = Color(0xFF38BDF8).copy(alpha = 0.28f),
       radius = bodyH * 0.48f,
       center = Offset(cx + dir * 12f, groundY - bodyH * 0.46f),
     )
     drawCircle(
-      color = Color(0xFF7DD3FC).copy(alpha = 0.8f),
+      color = Color(0xFF7DD3FC).copy(alpha = 0.85f),
       radius = bodyH * 0.48f,
       center = Offset(cx + dir * 12f, groundY - bodyH * 0.46f),
       style = Stroke(width = 3.5f),

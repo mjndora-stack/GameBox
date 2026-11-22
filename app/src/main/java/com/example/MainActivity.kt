@@ -349,6 +349,7 @@ fun VaultPlayApp(
                     viewModel.onGameLaunched(game.id)
                     navController.navigate("player/${game.id}")
                   },
+                  onClearQuickResume = viewModel::clearQuickResume,
                   onEquipBadge = viewModel::equipCosmeticBadge,
                   onSelectAvatar = viewModel::updateAvatar,
                   onCycleBonusMissions = viewModel::cycleBonusDailyMissions,
@@ -406,6 +407,9 @@ fun VaultPlayApp(
                   GameContainerScreen(
                     game = game,
                     uiState = uiState,
+                    savedQuickResume = uiState.quickResumes[game.id],
+                    onSaveQuickResume = viewModel::saveQuickResume,
+                    onClearQuickResume = viewModel::clearQuickResume,
                     onAwardProgress = viewModel::awardGameProgress,
                     onUpgradeFighter = viewModel::upgradeFighterStat,
                     onFlipHud = {

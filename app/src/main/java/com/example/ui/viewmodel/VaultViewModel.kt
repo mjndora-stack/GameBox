@@ -8,6 +8,7 @@ import com.example.data.local.AchievementEntity
 import com.example.data.local.CosmeticBadgeEntity
 import com.example.data.local.DailyMissionEntity
 import com.example.data.local.GameEntryEntity
+import com.example.data.local.GameQuickResumeEntity
 import com.example.data.local.LeaderboardEntryEntity
 import com.example.data.local.ProfileEntity
 import com.example.data.local.ThemePreferencesRepository
@@ -46,6 +47,7 @@ data class VaultUiState(
   val cosmeticBadges: List<CosmeticBadgeEntity> = emptyList(),
   val equippedCosmeticBadge: CosmeticBadgeEntity? = null,
   val leaderboardEntries: List<LeaderboardEntryEntity> = emptyList(),
+  val quickResumes: Map<String, GameQuickResumeEntity> = emptyMap(),
   val creatorUnlocked: Boolean = false,
   val creatorPin: String = "2011",
   val statusBanner: String? = null,
@@ -89,8 +91,9 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
       repository.dailyMissionsFlow,
       repository.cosmeticBadgesFlow,
       repository.leaderboardFlow,
-    ) { achievements, missions, cosmeticBadges, leaderboard ->
-      ProgressionTuple(achievements, missions, cosmeticBadges, leaderboard)
+      repository.quickResumesFlow,
+    ) { achievements, missions, cosmeticBadges, leaderboard, quickResumes ->
+      ProgressionTuple(achievements, missions, cosmeticBadges, leaderboard, quickResumes)
     }
 
   val uiState: StateFlow<VaultUiState> =
@@ -166,6 +169,7 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
         cosmeticBadges = prog.cosmeticBadges,
         equippedCosmeticBadge = equippedBadge,
         leaderboardEntries = prog.leaderboard,
+        quickResumes = prog.quickResumes.associateBy { it.gameId },
         creatorUnlocked = controls.unlocked,
         creatorPin = pin,
         statusBanner = controls.banner,
@@ -273,6 +277,18 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
     viewModelScope.launch {
       val reward = repository.recordGameLaunch(gameId, profileId)
       if (reward != null) latestReward.value = reward
+    }
+  }
+
+  fun saveQuickResume(gameId: String, summaryLabel: String, stateJson: String) {
+    viewModelScope.launch {
+      repository.saveQuickResume(gameId, summaryLabel, stateJson)
+    }
+  }
+
+  fun clearQuickResume(gameId: String) {
+    viewModelScope.launch {
+      repository.clearQuickResume(gameId)
     }
   }
 
@@ -418,5 +434,6 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
     val missions: List<DailyMissionEntity>,
     val cosmeticBadges: List<CosmeticBadgeEntity>,
     val leaderboard: List<LeaderboardEntryEntity>,
+    val quickResumes: List<GameQuickResumeEntity>,
   )
 }

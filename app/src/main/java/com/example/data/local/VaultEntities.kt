@@ -30,6 +30,8 @@ data class GameEntryEntity(
   val customHtmlContent: String? = null,
   val coverKey: String,
   val description: String,
+  val howItWorks: String = "",
+  val howToComplete: String = "",
   val controlsHint: String,
   val releaseNote: String,
   val highScore: Int = 0,
@@ -38,6 +40,14 @@ data class GameEntryEntity(
   val sortOrder: Int = 0,
   val isFanFavourite: Boolean = false,
   val isCreatorAdded: Boolean = false,
+)
+
+@Entity(tableName = "game_quick_resumes")
+data class GameQuickResumeEntity(
+  @PrimaryKey val gameId: String,
+  val summaryLabel: String,
+  val stateJson: String,
+  val updatedAt: Long = System.currentTimeMillis(),
 )
 
 @Entity(tableName = "achievements")

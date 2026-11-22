@@ -15,19 +15,26 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.BookmarkAdded
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.EmojiEvents
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.OfflineBolt
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.SportsEsports
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -37,6 +44,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -49,10 +57,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.audio.VaultAudioEngine
 import com.example.data.local.GameEntryEntity
+import com.example.data.local.GameQuickResumeEntity
 import com.example.data.model.LibraryFilter
 import com.example.data.model.PlayerTier
 import com.example.ui.components.DailyMissionsPanel
@@ -67,6 +77,7 @@ fun LibraryScreen(
   onFilterSelected: (LibraryFilter) -> Unit,
   onSearchChanged: (String) -> Unit,
   onLaunchGame: (GameEntryEntity) -> Unit,
+  onClearQuickResume: (String) -> Unit = {},
   onEquipBadge: (String?) -> Unit,
   onSelectAvatar: (String) -> Unit,
   onCycleBonusMissions: () -> Unit,
@@ -76,20 +87,30 @@ fun LibraryScreen(
 
   val profile = uiState.activeProfile
   val xp = profile?.totalXp ?: 0
+  val resumableEntries =
+    remember(uiState.games, uiState.quickResumes, uiState.currentTier) {
+      uiState.quickResumes.values
+        .sortedByDescending { it.updatedAt }
+        .mapNotNull { resume ->
+          val game = uiState.games.firstOrNull { it.id == resume.gameId } ?: return@mapNotNull null
+          val reqTier = runCatching { PlayerTier.valueOf(game.requiredTier) }.getOrDefault(PlayerTier.HOBBYIST)
+          if (uiState.currentTier.levelIndex < reqTier.levelIndex) null else game to resume
+        }
+    }
 
   BoxWithConstraints(modifier = modifier.fillMaxSize()) {
     val columns =
       when {
-        maxWidth >= 900.dp -> 3
-        maxWidth >= 600.dp -> 2
-        else -> 1
+        maxWidth >= 900.dp -> 4
+        maxWidth >= 600.dp -> 3
+        else -> 2
       }
 
     LazyVerticalGrid(
       columns = GridCells.Fixed(columns),
-      contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-      horizontalArrangement = Arrangement.spacedBy(14.dp),
-      verticalArrangement = Arrangement.spacedBy(14.dp),
+      contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+      horizontalArrangement = Arrangement.spacedBy(12.dp),
+      verticalArrangement = Arrangement.spacedBy(16.dp),
       modifier = Modifier.fillMaxSize(),
     ) {
       item(span = { GridItemSpan(columns) }) {
@@ -133,6 +154,78 @@ fun LibraryScreen(
               onCycleBonusMissions()
             },
           )
+
+          if (resumableEntries.isNotEmpty()) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+              Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+              ) {
+                Icon(
+                  Icons.Rounded.BookmarkAdded,
+                  contentDescription = null,
+                  tint = MaterialTheme.colorScheme.primary,
+                  modifier = Modifier.size(16.dp),
+                )
+                Text(
+                  "CONTINUE PLAYING · QUICK RESUME",
+                  style = MaterialTheme.typography.labelLarge,
+                  color = MaterialTheme.colorScheme.primary,
+                )
+              }
+              LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                items(resumableEntries, key = { it.first.id }) { (game, resume) ->
+                  Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)),
+                    modifier =
+                      Modifier
+                        .width(230.dp)
+                        .clickable {
+                          VaultAudioEngine.playLobbyButtonSound(accent = true)
+                          onLaunchGame(game)
+                        }
+                        .testTag("quick_resume_strip_${game.id}"),
+                  ) {
+                    Row(
+                      modifier = Modifier.padding(12.dp),
+                      verticalAlignment = Alignment.CenterVertically,
+                      horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                      Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                      ) {
+                        Icon(
+                          Icons.Rounded.PlayArrow,
+                          contentDescription = "Resume ${game.title}",
+                          tint = MaterialTheme.colorScheme.primary,
+                          modifier = Modifier.padding(8.dp).size(20.dp),
+                        )
+                      }
+                      Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                          text = game.title,
+                          style = MaterialTheme.typography.titleSmall,
+                          fontWeight = FontWeight.SemiBold,
+                          maxLines = 1,
+                          overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                          text = resume.summaryLabel,
+                          style = MaterialTheme.typography.labelSmall,
+                          color = MaterialTheme.colorScheme.primary,
+                          maxLines = 1,
+                          overflow = TextOverflow.Ellipsis,
+                        )
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
 
           OutlinedTextField(
             value = uiState.searchQuery,
@@ -190,12 +283,14 @@ fun LibraryScreen(
         items(uiState.filteredGames, key = { it.id }) { game ->
           val requiredTier = runCatching { PlayerTier.valueOf(game.requiredTier) }.getOrDefault(PlayerTier.HOBBYIST)
           val isLocked = uiState.currentTier.levelIndex < requiredTier.levelIndex
+          val savedResume = if (isLocked) null else uiState.quickResumes[game.id]
 
           GameVaultCard(
             game = game,
             isLocked = isLocked,
             requiredTier = requiredTier,
             currentXp = xp,
+            quickResume = savedResume,
             onCardClick = { VaultAudioEngine.playLobbyButtonSound(); inspectingGame = game },
             onQuickLaunch = {
               VaultAudioEngine.playLobbyButtonSound(accent = !isLocked)
@@ -214,9 +309,14 @@ fun LibraryScreen(
   inspectingGame?.let { game ->
     val requiredTier = runCatching { PlayerTier.valueOf(game.requiredTier) }.getOrDefault(PlayerTier.HOBBYIST)
     val isLocked = uiState.currentTier.levelIndex < requiredTier.levelIndex
+    val savedResume = if (isLocked) null else uiState.quickResumes[game.id]
     ModalBottomSheet(onDismissRequest = { inspectingGame = null }) {
       Column(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+        modifier =
+          Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 20.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
       ) {
         GameCoverArtwork(
@@ -240,7 +340,63 @@ fun LibraryScreen(
             Text(game.sizeLabel, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp))
           }
         }
+
+        if (savedResume != null) {
+          Surface(
+            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)),
+            shape = MaterialTheme.shapes.medium,
+            modifier = Modifier.fillMaxWidth(),
+          ) {
+            Row(
+              modifier = Modifier.padding(12.dp),
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+              Icon(Icons.Rounded.BookmarkAdded, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+              Column(modifier = Modifier.weight(1f)) {
+                Text("QUICK RESUME READY", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                Text("Saved state: ${savedResume.summaryLabel}", style = MaterialTheme.typography.bodyMedium)
+              }
+            }
+          }
+        }
+
         Text(game.description, style = MaterialTheme.typography.bodyLarge)
+
+        if (game.howItWorks.isNotBlank()) {
+          Surface(
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            shape = MaterialTheme.shapes.medium,
+            modifier = Modifier.fillMaxWidth(),
+          ) {
+            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+              Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Icon(Icons.Rounded.SportsEsports, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                Text("HOW IT WORKS", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+              }
+              Text(game.howItWorks, style = MaterialTheme.typography.bodyMedium)
+            }
+          }
+        }
+
+        if (game.howToComplete.isNotBlank()) {
+          Surface(
+            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.38f),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
+            shape = MaterialTheme.shapes.medium,
+            modifier = Modifier.fillMaxWidth(),
+          ) {
+            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+              Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Icon(Icons.Rounded.EmojiEvents, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                Text("HOW TO COMPLETE", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+              }
+              Text(game.howToComplete, style = MaterialTheme.typography.bodyMedium)
+            }
+          }
+        }
+
         Surface(
           color = MaterialTheme.colorScheme.surfaceVariant,
           shape = MaterialTheme.shapes.medium,
@@ -284,7 +440,22 @@ fun LibraryScreen(
           ) {
             Icon(Icons.Rounded.PlayArrow, contentDescription = null)
             Spacer(Modifier.size(6.dp))
-            Text("Launch in Embedded Engine")
+            Text(if (savedResume != null) "Resume Saved Game" else "Launch in Embedded Engine")
+          }
+          if (savedResume != null) {
+            OutlinedButton(
+              onClick = {
+                VaultAudioEngine.playLobbyButtonSound()
+                onClearQuickResume(game.id)
+                inspectingGame = null
+                onLaunchGame(game)
+              },
+              modifier = Modifier.fillMaxWidth().testTag("sheet_fresh_${game.id}"),
+            ) {
+              Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+              Spacer(Modifier.size(6.dp))
+              Text("Start Fresh Run")
+            }
           }
         }
         Spacer(Modifier.height(20.dp))
@@ -299,21 +470,31 @@ private fun GameVaultCard(
   isLocked: Boolean,
   requiredTier: PlayerTier,
   currentXp: Int,
+  quickResume: GameQuickResumeEntity?,
   onCardClick: () -> Unit,
   onQuickLaunch: () -> Unit,
 ) {
-  Card(
+  Column(
     modifier =
       Modifier
         .fillMaxWidth()
         .clickable(onClick = onCardClick)
         .testTag("game_card_${game.id}"),
-    shape = MaterialTheme.shapes.large,
-    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    verticalArrangement = Arrangement.spacedBy(6.dp),
   ) {
-    Column {
-      Box(modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
+    // Roblox-style rounded square in-game screenshot thumbnail
+    Card(
+      shape = RoundedCornerShape(14.dp),
+      colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+      border =
+        BorderStroke(
+          1.dp,
+          if (quickResume != null) MaterialTheme.colorScheme.primary.copy(alpha = 0.65f)
+          else MaterialTheme.colorScheme.outlineVariant,
+        ),
+      modifier = Modifier.fillMaxWidth().aspectRatio(1f),
+    ) {
+      Box(modifier = Modifier.fillMaxSize()) {
         GameCoverArtwork(
           coverKey = game.coverKey,
           title = game.title,
@@ -322,78 +503,111 @@ private fun GameVaultCard(
           isFanFavourite = game.isFanFavourite,
           modifier = Modifier.fillMaxSize(),
         )
-        Surface(
-          color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
-          shape = RoundedCornerShape(999.dp),
-          modifier = Modifier.align(Alignment.TopStart).padding(10.dp),
-        ) {
-          Text(
-            text = game.versionTag,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
-          )
-        }
-      }
 
-      Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(
-          modifier = Modifier.fillMaxWidth(),
-          horizontalArrangement = Arrangement.SpaceBetween,
-          verticalAlignment = Alignment.CenterVertically,
-        ) {
-          Column(modifier = Modifier.weight(1f)) {
-            Text(
-              text = game.title,
-              style = MaterialTheme.typography.titleLarge,
-              maxLines = 1,
-              overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-              text = game.subtitle,
-              style = MaterialTheme.typography.bodyMedium,
-              color = MaterialTheme.colorScheme.onSurfaceVariant,
-              maxLines = 1,
-              overflow = TextOverflow.Ellipsis,
-            )
-          }
-          Button(
-            onClick = onQuickLaunch,
+        if (quickResume != null) {
+          Surface(
+            color = androidx.compose.ui.graphics.Color(0xEB0B121D),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)),
             shape = RoundedCornerShape(999.dp),
-            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-            modifier = Modifier.testTag("play_button_${game.id}"),
+            modifier = Modifier.align(Alignment.BottomStart).padding(8.dp),
           ) {
-            if (isLocked) {
-              Icon(Icons.Rounded.Lock, contentDescription = "Locked", modifier = Modifier.size(16.dp))
-              Spacer(Modifier.size(4.dp))
-              Text(requiredTier.displayName)
-            } else {
-              Icon(Icons.Rounded.PlayArrow, contentDescription = "Play", modifier = Modifier.size(18.dp))
-              Spacer(Modifier.size(4.dp))
-              Text("Play")
+            Row(
+              modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
+              Icon(
+                Icons.Rounded.BookmarkAdded,
+                contentDescription = "Quick Resume saved",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(12.dp),
+              )
+              Text(
+                text = "SAVED",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+              )
             }
           }
         }
 
-        Row(
-          modifier = Modifier.fillMaxWidth(),
-          horizontalArrangement = Arrangement.SpaceBetween,
+        // Roblox-style Play / Resume Corner Action Button (48.dp accessible touch target)
+        Box(
+          contentAlignment = Alignment.Center,
+          modifier =
+            Modifier
+              .align(Alignment.BottomEnd)
+              .padding(4.dp)
+              .size(48.dp)
+              .clickable(onClick = onQuickLaunch)
+              .testTag("play_button_${game.id}"),
         ) {
-          Text(
-            text = game.genre,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-          )
-          Text(
-            text =
-              if (isLocked) "${(requiredTier.minXp - currentXp).coerceAtLeast(0)} XP left"
-              else if (game.highScore > 0) "BEST ${game.highScore}"
-              else "OFFLINE READY",
-            style = MaterialTheme.typography.labelSmall,
-            color = if (isLocked) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary,
-          )
+          Surface(
+            color =
+              when {
+                isLocked -> androidx.compose.ui.graphics.Color(0xEB1E2430)
+                quickResume != null -> MaterialTheme.colorScheme.primary
+                else -> androidx.compose.ui.graphics.Color(0xFF00B06F)
+              },
+            shape = RoundedCornerShape(12.dp),
+            shadowElevation = 4.dp,
+            modifier = Modifier.size(40.dp),
+          ) {
+            Box(contentAlignment = Alignment.Center) {
+              Icon(
+                imageVector = if (isLocked) Icons.Rounded.Lock else Icons.Rounded.PlayArrow,
+                contentDescription = if (isLocked) "Locked" else if (quickResume != null) "Resume ${game.title}" else "Play ${game.title}",
+                tint =
+                  when {
+                    isLocked -> androidx.compose.ui.graphics.Color(0xFFFFC857)
+                    quickResume != null -> MaterialTheme.colorScheme.onPrimary
+                    else -> androidx.compose.ui.graphics.Color.White
+                  },
+                modifier = Modifier.size(22.dp),
+              )
+            }
+          }
         }
+      }
+    }
+
+    // Compact Roblox-style Title + Best/Genre Caption
+    Column(
+      modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp),
+      verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+      Text(
+        text = game.title,
+        style = MaterialTheme.typography.titleSmall,
+        fontWeight = FontWeight.Bold,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+      )
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+      ) {
+        Text(
+          text = quickResume?.summaryLabel ?: game.genre,
+          style = MaterialTheme.typography.labelSmall,
+          color = if (quickResume != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis,
+          modifier = Modifier.weight(1f),
+        )
+        Text(
+          text =
+            when {
+              isLocked -> "${(requiredTier.minXp - currentXp).coerceAtLeast(0)} XP"
+              game.highScore > 0 -> "★ ${game.highScore}"
+              else -> game.versionTag
+            },
+          style = MaterialTheme.typography.labelSmall,
+          color = if (isLocked) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
       }
     }
   }
 }
+

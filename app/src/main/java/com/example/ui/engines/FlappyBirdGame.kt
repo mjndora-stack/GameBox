@@ -13,9 +13,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -23,6 +25,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -44,6 +47,8 @@ import com.example.audio.GameSfx
 import com.example.audio.VaultAudioEngine
 import kotlin.math.sin
 import kotlin.random.Random
+import org.json.JSONArray
+import org.json.JSONObject
 
 private data class FlappyPipe(
   val x: Float, // normalized 0..1000
@@ -60,22 +65,104 @@ private data class FeatherParticle(
   val life: Float,
 )
 
+private data class SavedFlappySnapshot(
+  val score: Int,
+  val bestScore: Int,
+  val birdY: Float,
+  val birdVy: Float,
+  val pipes: List<FlappyPipe>,
+)
+
+private fun parseFlappySnapshot(json: String?): SavedFlappySnapshot? {
+  if (json.isNullOrBlank()) return null
+  return runCatching {
+    val obj = JSONObject(json)
+    val pipeArr = obj.optJSONArray("pipes") ?: return null
+    if (pipeArr.length() == 0) return null
+    val parsedPipes = buildList {
+      for (i in 0 until pipeArr.length()) {
+        val p = pipeArr.getJSONObject(i)
+        add(
+          FlappyPipe(
+            x = p.getDouble("x").toFloat(),
+            gapY = p.getDouble("gapY").toFloat(),
+            gapHeight = p.optDouble("gapHeight", 215.0).toFloat(),
+            passed = p.optBoolean("passed", false),
+          )
+        )
+      }
+    }
+    SavedFlappySnapshot(
+      score = obj.optInt("score", 0),
+      bestScore = obj.optInt("best", 0),
+      birdY = obj.optDouble("birdY", 460.0).toFloat().coerceIn(40f, 840f),
+      birdVy = obj.optDouble("birdVy", 0.0).toFloat(),
+      pipes = parsedPipes,
+    )
+  }.getOrNull()
+}
+
 @Composable
 fun FlappyBirdGame(
   onAwardXp: (Int, Int?, String?) -> Unit,
   modifier: Modifier = Modifier,
+  savedStateJson: String? = null,
+  onRegisterQuickResumeProvider: ((() -> Pair<String, String>?) -> Unit) = {},
 ) {
+  val initialSnapshot = remember(savedStateJson) { parseFlappySnapshot(savedStateJson) }
+  var hasSavedFlight by remember(savedStateJson) { mutableStateOf(initialSnapshot != null) }
   var running by remember { mutableStateOf(false) }
   var gameOver by remember { mutableStateOf(false) }
-  var birdY by remember { mutableFloatStateOf(460f) } // 0..1000
-  var birdVy by remember { mutableFloatStateOf(0f) }
+  var birdY by remember(savedStateJson) { mutableFloatStateOf(initialSnapshot?.birdY ?: 460f) } // 0..1000
+  var birdVy by remember(savedStateJson) { mutableFloatStateOf(initialSnapshot?.birdVy ?: 0f) }
   var wingTimer by remember { mutableFloatStateOf(0f) }
   var animTime by remember { mutableFloatStateOf(0f) }
-  var score by remember { mutableIntStateOf(0) }
-  var bestScore by remember { mutableIntStateOf(0) }
-  val pipes = remember { mutableStateListOf<FlappyPipe>() }
+  var score by remember(savedStateJson) { mutableIntStateOf(initialSnapshot?.score ?: 0) }
+  var bestScore by remember(savedStateJson) { mutableIntStateOf(initialSnapshot?.bestScore ?: 0) }
+  val pipes = remember(savedStateJson) {
+    mutableStateListOf<FlappyPipe>().apply {
+      initialSnapshot?.pipes?.let { addAll(it) }
+    }
+  }
   val feathers = remember { mutableStateListOf<FeatherParticle>() }
   var groundScroll by remember { mutableFloatStateOf(0f) }
+
+  val latestScore by rememberUpdatedState(score)
+  val latestBestScore by rememberUpdatedState(bestScore)
+  val latestBirdY by rememberUpdatedState(birdY)
+  val latestBirdVy by rememberUpdatedState(birdVy)
+  val latestRunning by rememberUpdatedState(running)
+  val latestGameOver by rememberUpdatedState(gameOver)
+  val latestHasSavedFlight by rememberUpdatedState(hasSavedFlight)
+
+  DisposableEffect(onRegisterQuickResumeProvider) {
+    onRegisterQuickResumeProvider {
+      if (latestGameOver || (!latestRunning && !latestHasSavedFlight && pipes.isEmpty())) {
+        null
+      } else {
+        val obj = JSONObject().apply {
+          put("score", latestScore)
+          put("best", latestBestScore)
+          put("birdY", latestBirdY.toDouble())
+          put("birdVy", latestBirdVy.toDouble())
+          val pArr = JSONArray()
+          pipes.forEach { p ->
+            pArr.put(
+              JSONObject().apply {
+                put("x", p.x.toDouble())
+                put("gapY", p.gapY.toDouble())
+                put("gapHeight", p.gapHeight.toDouble())
+                put("passed", p.passed)
+              }
+            )
+          }
+          put("pipes", pArr)
+        }
+        "Pipes $latestScore · ${latestScore * 100} pts" to obj.toString()
+      }
+    }
+    onDispose {}
+  }
 
   fun spawnFeathers(y: Float) {
     repeat(5) {
@@ -100,7 +187,17 @@ fun FlappyBirdGame(
     birdVy = -430f
     wingTimer = 0.25f
     score = 0
+    hasSavedFlight = false
     gameOver = false
+    running = true
+    VaultAudioEngine.playGameSfx(GameSfx.JUMP)
+    spawnFeathers(birdY)
+  }
+
+  fun resumeSavedFlight() {
+    hasSavedFlight = false
+    birdVy = -380f
+    wingTimer = 0.25f
     running = true
     VaultAudioEngine.playGameSfx(GameSfx.JUMP)
     spawnFeathers(birdY)
@@ -108,7 +205,7 @@ fun FlappyBirdGame(
 
   fun flap() {
     if (!running && !gameOver) {
-      resetAndFlap()
+      if (hasSavedFlight) resumeSavedFlight() else resetAndFlap()
     } else if (running) {
       birdVy = -430f
       wingTimer = 0.25f
@@ -231,17 +328,20 @@ fun FlappyBirdGame(
         val sy = size.height / 1000f
         val groundTop = 885f * sy
 
-        // Sky & layered stylized clouds
-        drawRect(Brush.verticalGradient(listOf(Color(0xFF0C2340), Color(0xFF1A4978), Color(0xFF38BDF8))))
+        // Sky, sun halo, distant ridge silhouettes & layered stylized clouds
+        drawRect(Brush.verticalGradient(listOf(Color(0xFF091B34), Color(0xFF154370), Color(0xFF38BDF8))))
+        drawCircle(Brush.radialGradient(listOf(Color(0x44FDE047), Color.Transparent), Offset(size.width * 0.82f, size.height * 0.18f), size.minDimension * 0.28f), size.minDimension * 0.28f, Offset(size.width * 0.82f, size.height * 0.18f))
+        drawCircle(Color(0xFF0F3B5E), size.minDimension * 0.24f, Offset(size.width * 0.20f, groundTop + 30f))
+        drawCircle(Color(0xFF0E3554), size.minDimension * 0.28f, Offset(size.width * 0.72f, groundTop + 20f))
         listOf(0.18f to 0.22f, 0.56f to 0.16f, 0.80f to 0.28f).forEach { (cxF, cyF) ->
           val cx = size.width * cxF
           val cy = size.height * cyF
-          drawRoundRect(Color.White.copy(alpha = 0.16f), Offset(cx - 44f, cy), Size(88f, 26f), CornerRadius(14f))
-          drawCircle(Color.White.copy(alpha = 0.18f), 20f, Offset(cx - 12f, cy))
-          drawCircle(Color.White.copy(alpha = 0.18f), 26f, Offset(cx + 14f, cy - 6f))
+          drawRoundRect(Color.White.copy(alpha = 0.20f), Offset(cx - 48f, cy), Size(96f, 28f), CornerRadius(14f))
+          drawCircle(Color.White.copy(alpha = 0.22f), 22f, Offset(cx - 12f, cy))
+          drawCircle(Color.White.copy(alpha = 0.22f), 28f, Offset(cx + 16f, cy - 6f))
         }
 
-        // Beveled Emerald Pipes with highlight sheen
+        // Beveled 3D Emerald Pipes with specular sheen, shadow edge & rim rivets
         pipes.forEach { pipe ->
           val px = pipe.x * sx
           val halfW = 42f * sx
@@ -250,13 +350,23 @@ fun FlappyBirdGame(
 
           // Top Pipe
           drawRect(Color(0xFF15803D), Offset(px - halfW, 0f), Size(halfW * 2f, topBottom))
-          drawRect(Color(0xFF4ADE80).copy(alpha = 0.35f), Offset(px - halfW + 8f, 0f), Size(halfW * 0.42f, topBottom))
-          drawRoundRect(Color(0xFF22C55E), Offset(px - halfW - 6f, (topBottom - 26f).coerceAtLeast(0f)), Size(halfW * 2f + 12f, 26f), CornerRadius(6f))
+          drawRect(Color(0xFF4ADE80).copy(alpha = 0.42f), Offset(px - halfW + 7f, 0f), Size(halfW * 0.40f, topBottom))
+          drawRect(Color(0xFF0D4E26).copy(alpha = 0.55f), Offset(px + halfW * 0.45f, 0f), Size(halfW * 0.55f, topBottom))
+          val topLipY = (topBottom - 26f).coerceAtLeast(0f)
+          drawRoundRect(Color(0xFF22C55E), Offset(px - halfW - 6f, topLipY), Size(halfW * 2f + 12f, 26f), CornerRadius(6f))
+          drawRoundRect(Color.White.copy(alpha = 0.25f), Offset(px - halfW - 4f, topLipY + 2f), Size(halfW * 2f + 8f, 6f), CornerRadius(3f))
+          drawCircle(Color(0xFF14532D), 3.5f, Offset(px - halfW + 4f, topLipY + 13f))
+          drawCircle(Color(0xFF14532D), 3.5f, Offset(px + halfW - 4f, topLipY + 13f))
 
           // Bottom Pipe
-          drawRect(Color(0xFF15803D), Offset(px - halfW, botTop), Size(halfW * 2f, (groundTop - botTop).coerceAtLeast(0f)))
-          drawRect(Color(0xFF4ADE80).copy(alpha = 0.35f), Offset(px - halfW + 8f, botTop), Size(halfW * 0.42f, (groundTop - botTop).coerceAtLeast(0f)))
+          val botH = (groundTop - botTop).coerceAtLeast(0f)
+          drawRect(Color(0xFF15803D), Offset(px - halfW, botTop), Size(halfW * 2f, botH))
+          drawRect(Color(0xFF4ADE80).copy(alpha = 0.42f), Offset(px - halfW + 7f, botTop), Size(halfW * 0.40f, botH))
+          drawRect(Color(0xFF0D4E26).copy(alpha = 0.55f), Offset(px + halfW * 0.45f, botTop), Size(halfW * 0.55f, botH))
           drawRoundRect(Color(0xFF22C55E), Offset(px - halfW - 6f, botTop), Size(halfW * 2f + 12f, 26f), CornerRadius(6f))
+          drawRoundRect(Color.White.copy(alpha = 0.25f), Offset(px - halfW - 4f, botTop + 2f), Size(halfW * 2f + 8f, 6f), CornerRadius(3f))
+          drawCircle(Color(0xFF14532D), 3.5f, Offset(px - halfW + 4f, botTop + 13f))
+          drawCircle(Color(0xFF14532D), 3.5f, Offset(px + halfW - 4f, botTop + 13f))
         }
 
         // Scrolling Ground
@@ -290,18 +400,19 @@ fun FlappyBirdGame(
           val scarfWave = sin(animTime * 16f) * (unit * 0.25f)
           val scarf = Path().apply {
             moveTo(bx - unit * 0.3f, by + unit * 0.05f)
-            quadraticBezierTo(bx - unit * 1.1f, by + scarfWave, bx - unit * 1.55f, by - unit * 0.2f - scarfWave)
-            lineTo(bx - unit * 1.45f, by + unit * 0.15f - scarfWave)
+            quadraticTo(bx - unit * 1.1f, by + scarfWave, bx - unit * 1.62f, by - unit * 0.22f - scarfWave)
+            lineTo(bx - unit * 1.48f, by + unit * 0.16f - scarfWave)
             close()
           }
           drawPath(scarf, Color(0xFFEF4444))
+          drawPath(scarf, Color(0xFFB91C1C), style = Stroke(1.6f))
 
           // Fanned Tail Feathers
           val tail = Path().apply {
             moveTo(bx - unit * 0.72f, by)
-            lineTo(bx - unit * 1.32f, by - unit * 0.36f)
+            lineTo(bx - unit * 1.36f, by - unit * 0.38f)
             lineTo(bx - unit * 1.18f, by)
-            lineTo(bx - unit * 1.32f, by + unit * 0.32f)
+            lineTo(bx - unit * 1.36f, by + unit * 0.34f)
             close()
           }
           drawPath(tail, Color(0xFFF59E0B))
@@ -309,16 +420,17 @@ fun FlappyBirdGame(
           // Sculpted Bird Body & Head Crest
           val body = Path().apply {
             moveTo(bx - unit * 0.9f, by + unit * 0.08f)
-            quadraticBezierTo(bx - unit * 0.3f, by - unit * 0.92f, bx + unit * 0.45f, by - unit * 0.78f)
-            lineTo(bx + unit * 0.25f, by - unit * 1.1f) // feather crest
+            quadraticTo(bx - unit * 0.3f, by - unit * 0.92f, bx + unit * 0.45f, by - unit * 0.78f)
+            lineTo(bx + unit * 0.25f, by - unit * 1.12f)
             lineTo(bx + unit * 0.62f, by - unit * 0.68f)
-            quadraticBezierTo(bx + unit * 1.05f, by - unit * 0.15f, bx + unit * 0.72f, by + unit * 0.55f)
-            quadraticBezierTo(bx - unit * 0.2f, by + unit * 0.85f, bx - unit * 0.9f, by + unit * 0.08f)
+            quadraticTo(bx + unit * 1.05f, by - unit * 0.15f, bx + unit * 0.72f, by + unit * 0.55f)
+            quadraticTo(bx - unit * 0.2f, by + unit * 0.85f, bx - unit * 0.9f, by + unit * 0.08f)
             close()
           }
           drawPath(body, Color(0xFFFACC15))
+          drawPath(body, Color(0xFFCA8A04), style = Stroke(2f))
 
-          // Cream belly highlight
+          // Cream belly highlight & aviator chest patch
           drawOval(
             Color(0xFFFEF9C3),
             Offset(bx - unit * 0.35f, by + unit * 0.05f),
@@ -328,14 +440,14 @@ fun FlappyBirdGame(
           // Dual Beak (upper & lower mandible)
           val upperBeak = Path().apply {
             moveTo(bx + unit * 0.76f, by - unit * 0.18f)
-            lineTo(bx + unit * 1.45f, by + unit * 0.02f)
+            lineTo(bx + unit * 1.48f, by + unit * 0.02f)
             lineTo(bx + unit * 0.76f, by + unit * 0.12f)
             close()
           }
           drawPath(upperBeak, Color(0xFFF97316))
           val lowerBeak = Path().apply {
             moveTo(bx + unit * 0.76f, by + unit * 0.12f)
-            lineTo(bx + unit * 1.28f, by + unit * 0.18f)
+            lineTo(bx + unit * 1.30f, by + unit * 0.18f)
             lineTo(bx + unit * 0.76f, by + unit * 0.32f)
             close()
           }
@@ -346,14 +458,14 @@ fun FlappyBirdGame(
           drawCircle(Color(0xFF0F172A), unit * 0.34f, Offset(bx + unit * 0.42f, by - unit * 0.28f))
           drawCircle(Color.White, unit * 0.26f, Offset(bx + unit * 0.42f, by - unit * 0.28f))
           drawCircle(Color(0xFF0EA5E9), unit * 0.13f, Offset(bx + unit * 0.48f, by - unit * 0.28f))
-          drawCircle(Color.White, unit * 0.05f, Offset(bx + unit * 0.52f, by - unit * 0.32f))
+          drawCircle(Color.White, unit * 0.055f, Offset(bx + unit * 0.52f, by - unit * 0.32f))
 
           // Animated Sculpted Wing with Feathers
           rotate(degrees = flapWave, pivot = Offset(bx - unit * 0.05f, by)) {
             val wing = Path().apply {
               moveTo(bx + unit * 0.18f, by - unit * 0.06f)
-              quadraticBezierTo(bx - unit * 0.55f, by - unit * 0.56f, bx - unit * 0.85f, by + unit * 0.12f)
-              quadraticBezierTo(bx - unit * 0.35f, by + unit * 0.44f, bx + unit * 0.18f, by + unit * 0.16f)
+              quadraticTo(bx - unit * 0.55f, by - unit * 0.56f, bx - unit * 0.85f, by + unit * 0.12f)
+              quadraticTo(bx - unit * 0.35f, by + unit * 0.44f, bx + unit * 0.18f, by + unit * 0.16f)
               close()
             }
             drawPath(wing, Color(0xFFFEF08A))
@@ -375,20 +487,44 @@ fun FlappyBirdGame(
             verticalArrangement = Arrangement.spacedBy(8.dp),
           ) {
             Text(
-              text = if (gameOver) "FLIGHT OVER" else "FLAPPY BIRD",
+              text =
+                when {
+                  gameOver -> "FLIGHT OVER"
+                  hasSavedFlight -> "FLIGHT SAVED"
+                  else -> "FLAPPY BIRD"
+                },
               style = MaterialTheme.typography.headlineSmall,
               color = MaterialTheme.colorScheme.primary,
             )
             Text(
-              text = if (gameOver) "Score ${score * 100} ($score pipes cleared · Best ${bestScore * 100}). Tap below to fly again!" else "Tap anywhere to weave through emerald pipe gates (+100 pts per pipe).",
+              text =
+                when {
+                  gameOver -> "Score ${score * 100} ($score pipes cleared · Best ${bestScore * 100}). Tap below to fly again!"
+                  hasSavedFlight -> "Quick Resume ready at $score pipes (${score * 100} pts). Tap below or tap sky to continue!"
+                  else -> "Tap anywhere to weave through emerald pipe gates (+100 pts per pipe)."
+                },
               style = MaterialTheme.typography.bodyMedium,
               color = Color.White,
             )
             Button(
-              onClick = { resetAndFlap() },
+              onClick = { if (hasSavedFlight) resumeSavedFlight() else resetAndFlap() },
               modifier = Modifier.testTag("flappy_start_btn"),
             ) {
-              Text(if (gameOver) "Flap Again" else "Launch Flight")
+              Text(
+                when {
+                  gameOver -> "Flap Again"
+                  hasSavedFlight -> "Resume Flight"
+                  else -> "Launch Flight"
+                }
+              )
+            }
+            if (hasSavedFlight) {
+              OutlinedButton(
+                onClick = { resetAndFlap() },
+                modifier = Modifier.testTag("flappy_fresh_btn"),
+              ) {
+                Text("Start Fresh")
+              }
             }
           }
         }

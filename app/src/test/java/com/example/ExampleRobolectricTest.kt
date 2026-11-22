@@ -238,5 +238,48 @@ class ExampleRobolectricTest {
 
     assertEquals("block_blast", VaultTrackCatalog.forKey("block_blast").id)
   }
+
+  @Test
+  fun `all 18 games include detailed howItWorks and howToComplete guides`() {
+    val games = VaultDatabase.defaultGames()
+    assertEquals(18, games.size)
+    games.forEach { game ->
+      assertTrue("${game.id} missing description", game.description.trim().length >= 20)
+      assertTrue("${game.id} missing howItWorks", game.howItWorks.trim().length >= 30)
+      assertTrue("${game.id} missing howToComplete", game.howToComplete.trim().length >= 30)
+    }
+  }
+
+  @Test
+  fun `quick resume serializer round trips arrays and mid-game chess state`() {
+    val ints = intArrayOf(0, 4, 8, 16, 1024, 0, -3)
+    val decodedInts = com.example.ui.engines.QuickResumeSerializer.decodeIntArray(
+      com.example.ui.engines.QuickResumeSerializer.encodeIntArray(ints)
+    )
+    assertNotNull(decodedInts)
+    assertEquals(ints.toList(), decodedInts!!.toList())
+
+    val bools = booleanArrayOf(true, false, true, true, false)
+    val decodedBools = com.example.ui.engines.QuickResumeSerializer.decodeBooleanArray(
+      com.example.ui.engines.QuickResumeSerializer.encodeBooleanArray(bools)
+    )
+    assertNotNull(decodedBools)
+    assertEquals(bools.toList(), decodedBools!!.toList())
+
+    val initial = ChessState.initial()
+    val firstMove = ChessRules.legalMoves(initial, ChessColor.WHITE).first()
+    val midGame = ChessRules.applyMove(initial, firstMove)
+    val json = com.example.ui.engines.QuickResumeSerializer.encodeChessState(midGame)
+    val restored = com.example.ui.engines.QuickResumeSerializer.decodeChessState(json)
+    assertNotNull(restored)
+    assertEquals(midGame.turn, restored!!.turn)
+    assertEquals(midGame.lastMove?.fromRow, restored.lastMove?.fromRow)
+    assertEquals(midGame.lastMove?.toRow, restored.lastMove?.toRow)
+    assertEquals(midGame.lastMove?.toCol, restored.lastMove?.toCol)
+    assertEquals(
+      ChessRules.legalMoves(midGame, ChessColor.BLACK).size,
+      ChessRules.legalMoves(restored, ChessColor.BLACK).size,
+    )
+  }
 }
 

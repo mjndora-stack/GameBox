@@ -40,12 +40,14 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -68,26 +70,89 @@ import com.example.data.model.PlayerTier
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
+
+private data class SavedChessSnapshot(
+  val friendMode: Boolean,
+  val autoFlipBoard: Boolean,
+  val selectedElo: Int,
+  val state: ChessState,
+)
+
+private fun parseChessSnapshot(json: String?): SavedChessSnapshot? {
+  if (json.isNullOrBlank()) return null
+  return runCatching {
+    val obj = JSONObject(json)
+    val decoded = QuickResumeSerializer.decodeChessState(obj.optJSONObject("chess")) ?: return null
+    val elo = obj.optInt("elo", 100)
+    val validElo = if (CHESS_ELO_PRESETS.any { it.elo == elo }) elo else 100
+    SavedChessSnapshot(
+      friendMode = obj.optBoolean("friend", false),
+      autoFlipBoard = obj.optBoolean("flip", false),
+      selectedElo = validElo,
+      state = decoded,
+    )
+  }.getOrNull()
+}
 
 @Composable
 fun VaultChessGame(
   currentTier: PlayerTier,
   onAwardXp: (Int, Int?, String?) -> Unit,
   modifier: Modifier = Modifier,
+  savedStateJson: String? = null,
+  onRegisterQuickResumeProvider: ((() -> Pair<String, String>?) -> Unit) = {},
 ) {
-  var friendMode by remember { mutableStateOf(false) }
-  var autoFlipBoard by remember { mutableStateOf(false) }
-  var selectedElo by remember { mutableIntStateOf(100) }
-  var chessState by remember { mutableStateOf(ChessState.initial()) }
-  val history = remember { mutableStateListOf<ChessState>() }
+  val initialSnapshot = remember(savedStateJson) { parseChessSnapshot(savedStateJson) }
+  var friendMode by remember(savedStateJson) { mutableStateOf(initialSnapshot?.friendMode ?: false) }
+  var autoFlipBoard by remember(savedStateJson) { mutableStateOf(initialSnapshot?.autoFlipBoard ?: false) }
+  var selectedElo by remember(savedStateJson) { mutableIntStateOf(initialSnapshot?.selectedElo ?: 100) }
+  var chessState by remember(savedStateJson) { mutableStateOf(initialSnapshot?.state ?: ChessState.initial()) }
+  val history = remember(savedStateJson) { mutableStateListOf<ChessState>() }
   var selectedSquare by remember { mutableStateOf<Pair<Int, Int>?>(null) }
   var botThinking by remember { mutableStateOf(false) }
-  var statusText by remember { mutableStateOf("Your turn (White) · Bot set to 100 Elo") }
+  var statusText by remember(savedStateJson) {
+    mutableStateOf(
+      if (initialSnapshot != null) {
+        val side = if (initialSnapshot.state.turn == ChessColor.WHITE) "White" else "Black"
+        if (initialSnapshot.friendMode) "Resumed Pass & Play · $side to move"
+        else "Resumed vs ${initialSnapshot.selectedElo} Elo · $side to move"
+      } else {
+        "Your turn (White) · Bot set to 100 Elo"
+      }
+    )
+  }
   var rewardPaidForGame by remember { mutableStateOf(false) }
 
   val activePreset = CHESS_ELO_PRESETS.first { it.elo == selectedElo }
   val gameStatus = remember(chessState) { ChessRules.evaluateStatus(chessState) }
   val activeTurn = chessState.turn
+
+  val latestFriendMode by rememberUpdatedState(friendMode)
+  val latestAutoFlip by rememberUpdatedState(autoFlipBoard)
+  val latestElo by rememberUpdatedState(selectedElo)
+  val latestState by rememberUpdatedState(chessState)
+  val latestStatus by rememberUpdatedState(gameStatus)
+
+  DisposableEffect(onRegisterQuickResumeProvider) {
+    onRegisterQuickResumeProvider {
+      if (latestStatus != ChessGameStatus.IN_PROGRESS || latestState.lastMove == null) {
+        null
+      } else {
+        val obj = JSONObject().apply {
+          put("friend", latestFriendMode)
+          put("flip", latestAutoFlip)
+          put("elo", latestElo)
+          put("chess", QuickResumeSerializer.encodeChessState(latestState))
+        }
+        val modeTag = if (latestFriendMode) "2P Duel" else "${latestElo} Elo"
+        val turnTag = if (latestState.turn == ChessColor.WHITE) "White turn" else "Black turn"
+        "$modeTag · $turnTag" to obj.toString()
+      }
+    }
+    onDispose {}
+  }
+
   val legalMovesForActiveSide =
     remember(chessState, friendMode) {
       if (gameStatus == ChessGameStatus.IN_PROGRESS && (friendMode || chessState.turn == ChessColor.WHITE)) {
@@ -482,13 +547,16 @@ private fun ChessPieceVector(
 private fun DrawScope.drawStauntonPiece(piece: ChessPiece) {
   val w = size.width
   val h = size.height
-  val fill = if (piece.color == ChessColor.WHITE) Color(0xFFF8FAFC) else Color(0xFF151C28)
-  val rim = if (piece.color == ChessColor.WHITE) Color(0xFF334155) else Color(0xFFCBD5E1)
-  val accent = if (piece.color == ChessColor.WHITE) Color(0xFFE2E8F0) else Color(0xFF475569)
+  val isWhite = piece.color == ChessColor.WHITE
+  val fill = if (isWhite) Color(0xFFF8FAFC) else Color(0xFF151C28)
+  val rim = if (isWhite) Color(0xFF334155) else Color(0xFFCBD5E1)
+  val accent = if (isWhite) Color(0xFFE2E8F0) else Color(0xFF475569)
+  val gleam = if (isWhite) Color.White else Color(0xFF64748B)
 
   // Drop Shadow + Stepped Pedestal Base shared across all pieces
-  drawOval(Color.Black.copy(alpha = 0.25f), Offset(w * 0.16f, h * 0.84f), Size(w * 0.68f, h * 0.11f))
+  drawOval(Color.Black.copy(alpha = 0.28f), Offset(w * 0.15f, h * 0.84f), Size(w * 0.70f, h * 0.11f))
   drawRoundRect(fill, Offset(w * 0.18f, h * 0.76f), Size(w * 0.64f, h * 0.13f), CornerRadius(6f))
+  drawRoundRect(gleam.copy(alpha = 0.45f), Offset(w * 0.22f, h * 0.775f), Size(w * 0.56f, h * 0.04f), CornerRadius(3f))
   drawRoundRect(rim, Offset(w * 0.18f, h * 0.76f), Size(w * 0.64f, h * 0.13f), CornerRadius(6f), style = Stroke(width = 2.2f))
 
   val outline = Stroke(width = 2.4f, cap = StrokeCap.Round, join = StrokeJoin.Round)
@@ -496,19 +564,19 @@ private fun DrawScope.drawStauntonPiece(piece: ChessPiece) {
     PieceType.PAWN -> {
       val stem = Path().apply {
         moveTo(w * 0.30f, h * 0.76f)
-        quadraticBezierTo(w * 0.40f, h * 0.56f, w * 0.42f, h * 0.44f)
+        quadraticTo(w * 0.40f, h * 0.56f, w * 0.42f, h * 0.44f)
         lineTo(w * 0.58f, h * 0.44f)
-        quadraticBezierTo(w * 0.60f, h * 0.56f, w * 0.70f, h * 0.76f)
+        quadraticTo(w * 0.60f, h * 0.56f, w * 0.70f, h * 0.76f)
         close()
       }
       drawPath(stem, fill)
       drawPath(stem, rim, style = outline)
       drawRoundRect(accent, Offset(w * 0.34f, h * 0.40f), Size(w * 0.32f, h * 0.06f), CornerRadius(4f))
       drawCircle(fill, w * 0.18f, Offset(w * 0.50f, h * 0.27f))
+      drawCircle(gleam.copy(alpha = 0.55f), w * 0.06f, Offset(w * 0.44f, h * 0.22f))
       drawCircle(rim, w * 0.18f, Offset(w * 0.50f, h * 0.27f), style = outline)
     }
     PieceType.ROOK -> {
-      // Tower body + 3 crenellated battlements
       val tower = Path().apply {
         moveTo(w * 0.26f, h * 0.76f)
         lineTo(w * 0.32f, h * 0.34f)
@@ -529,33 +597,33 @@ private fun DrawScope.drawStauntonPiece(piece: ChessPiece) {
         close()
       }
       drawPath(tower, fill)
+      drawLine(accent, Offset(w * 0.34f, h * 0.35f), Offset(w * 0.66f, h * 0.35f), 2.5f)
       drawPath(tower, rim, style = outline)
     }
     PieceType.KNIGHT -> {
-      // Sculpted Horse Profile with Ear, Muzzle, Mane & Eye
       val knight = Path().apply {
         moveTo(w * 0.26f, h * 0.76f)
-        quadraticBezierTo(w * 0.22f, h * 0.45f, w * 0.34f, h * 0.22f)
-        lineTo(w * 0.38f, h * 0.10f) // ear
+        quadraticTo(w * 0.22f, h * 0.45f, w * 0.34f, h * 0.22f)
+        lineTo(w * 0.38f, h * 0.10f)
         lineTo(w * 0.48f, h * 0.18f)
-        quadraticBezierTo(w * 0.72f, h * 0.22f, w * 0.78f, h * 0.38f) // muzzle
+        quadraticTo(w * 0.72f, h * 0.22f, w * 0.78f, h * 0.38f)
         lineTo(w * 0.70f, h * 0.46f)
-        lineTo(w * 0.54f, h * 0.44f) // jaw notch
-        quadraticBezierTo(w * 0.60f, h * 0.60f, w * 0.72f, h * 0.76f)
+        lineTo(w * 0.54f, h * 0.44f)
+        quadraticTo(w * 0.60f, h * 0.60f, w * 0.72f, h * 0.76f)
         close()
       }
       drawPath(knight, fill)
       drawPath(knight, rim, style = outline)
-      drawCircle(rim, w * 0.038f, Offset(w * 0.53f, h * 0.29f))
+      drawCircle(rim, w * 0.04f, Offset(w * 0.53f, h * 0.29f))
+      drawLine(accent, Offset(w * 0.30f, h * 0.38f), Offset(w * 0.32f, h * 0.62f), 2.5f, StrokeCap.Round)
     }
     PieceType.BISHOP -> {
-      // Pointed Mitre with diagonal cleft & top finial orb
       val bishop = Path().apply {
         moveTo(w * 0.28f, h * 0.76f)
-        quadraticBezierTo(w * 0.36f, h * 0.54f, w * 0.34f, h * 0.36f)
-        quadraticBezierTo(w * 0.32f, h * 0.20f, w * 0.50f, h * 0.15f)
-        quadraticBezierTo(w * 0.68f, h * 0.20f, w * 0.66f, h * 0.36f)
-        quadraticBezierTo(w * 0.64f, h * 0.54f, w * 0.72f, h * 0.76f)
+        quadraticTo(w * 0.36f, h * 0.54f, w * 0.34f, h * 0.36f)
+        quadraticTo(w * 0.32f, h * 0.20f, w * 0.50f, h * 0.15f)
+        quadraticTo(w * 0.68f, h * 0.20f, w * 0.66f, h * 0.36f)
+        quadraticTo(w * 0.64f, h * 0.54f, w * 0.72f, h * 0.76f)
         close()
       }
       drawPath(bishop, fill)
@@ -565,7 +633,6 @@ private fun DrawScope.drawStauntonPiece(piece: ChessPiece) {
       drawCircle(rim, w * 0.065f, Offset(w * 0.50f, h * 0.11f), style = outline)
     }
     PieceType.QUEEN -> {
-      // Royal 5-Point Jeweled Crown & Gown
       val queen = Path().apply {
         moveTo(w * 0.24f, h * 0.76f)
         lineTo(w * 0.18f, h * 0.30f)
@@ -583,25 +650,23 @@ private fun DrawScope.drawStauntonPiece(piece: ChessPiece) {
       drawPath(queen, fill)
       drawPath(queen, rim, style = outline)
       listOf(0.18f to 0.27f, 0.36f to 0.17f, 0.50f to 0.12f, 0.64f to 0.17f, 0.82f to 0.27f).forEach { (cx, cy) ->
-        drawCircle(accent, w * 0.045f, Offset(w * cx, h * cy))
-        drawCircle(rim, w * 0.045f, Offset(w * cx, h * cy), style = Stroke(width = 1.6f))
+        drawCircle(Color(0xFFFFC857), w * 0.048f, Offset(w * cx, h * cy))
+        drawCircle(rim, w * 0.048f, Offset(w * cx, h * cy), style = Stroke(width = 1.6f))
       }
     }
     PieceType.KING -> {
-      // Heraldic Cross Crown & Broad Royal Shoulders
       val king = Path().apply {
         moveTo(w * 0.24f, h * 0.76f)
         lineTo(w * 0.22f, h * 0.42f)
-        quadraticBezierTo(w * 0.35f, h * 0.26f, w * 0.50f, h * 0.30f)
-        quadraticBezierTo(w * 0.65f, h * 0.26f, w * 0.78f, h * 0.42f)
+        quadraticTo(w * 0.35f, h * 0.26f, w * 0.50f, h * 0.30f)
+        quadraticTo(w * 0.65f, h * 0.26f, w * 0.78f, h * 0.42f)
         lineTo(w * 0.76f, h * 0.76f)
         close()
       }
       drawPath(king, fill)
       drawPath(king, rim, style = outline)
-      // Cross Finial
-      drawLine(rim, Offset(w * 0.50f, h * 0.08f), Offset(w * 0.50f, h * 0.30f), 4f, StrokeCap.Round)
-      drawLine(rim, Offset(w * 0.40f, h * 0.16f), Offset(w * 0.60f, h * 0.16f), 4f, StrokeCap.Round)
+      drawLine(Color(0xFFFFC857), Offset(w * 0.50f, h * 0.08f), Offset(w * 0.50f, h * 0.29f), 4f, StrokeCap.Round)
+      drawLine(Color(0xFFFFC857), Offset(w * 0.40f, h * 0.16f), Offset(w * 0.60f, h * 0.16f), 4f, StrokeCap.Round)
     }
   }
 }

@@ -35,17 +35,23 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -55,12 +61,15 @@ import com.example.audio.GameSfx
 import com.example.audio.VaultAudioEngine
 import kotlin.math.abs
 import kotlin.random.Random
+import org.json.JSONObject
 
 // 1. PRISM 2048
 @Composable
 fun Prism2048Game(
   onAwardXp: (Int, Int?, String?) -> Unit,
   modifier: Modifier = Modifier,
+  savedStateJson: String? = null,
+  onRegisterQuickResumeProvider: ((() -> Pair<String, String>?) -> Unit) = {},
 ) {
   fun spawnTile(b: IntArray): IntArray {
     val empties = b.indices.filter { b[it] == 0 }
@@ -72,9 +81,38 @@ fun Prism2048Game(
 
   fun newBoard(): IntArray = spawnTile(spawnTile(IntArray(16)))
 
-  var board by remember { mutableStateOf(newBoard()) }
-  var score by remember { mutableIntStateOf(0) }
-  var achieved256 by remember { mutableStateOf(false) }
+  val initialSnapshot = remember(savedStateJson) {
+    if (savedStateJson.isNullOrBlank()) null
+    else runCatching {
+      val obj = JSONObject(savedStateJson)
+      val arr = QuickResumeSerializer.decodeIntArray(obj.optJSONArray("board")) ?: return@runCatching null
+      if (arr.size != 16) return@runCatching null
+      Triple(arr, obj.optInt("score", 0), obj.optBoolean("ach256", false))
+    }.getOrNull()
+  }
+
+  var board by remember(savedStateJson) { mutableStateOf(initialSnapshot?.first ?: newBoard()) }
+  var score by remember(savedStateJson) { mutableIntStateOf(initialSnapshot?.second ?: 0) }
+  var achieved256 by remember(savedStateJson) { mutableStateOf(initialSnapshot?.third ?: false) }
+
+  val latestBoard by rememberUpdatedState(board)
+  val latestScore by rememberUpdatedState(score)
+  val latestAch by rememberUpdatedState(achieved256)
+
+  DisposableEffect(onRegisterQuickResumeProvider) {
+    onRegisterQuickResumeProvider {
+      if (latestScore <= 0) null
+      else {
+        val obj = JSONObject().apply {
+          put("board", QuickResumeSerializer.encodeIntArray(latestBoard))
+          put("score", latestScore)
+          put("ach256", latestAch)
+        }
+        "Score $latestScore · Max ${latestBoard.maxOrNull() ?: 0}" to obj.toString()
+      }
+    }
+    onDispose {}
+  }
 
   fun slideLine(line: IntArray): Pair<IntArray, Int> {
     val nonZero = line.filter { it != 0 }.toMutableList()
@@ -196,11 +234,36 @@ fun Prism2048Game(
                   128 -> Color(0xFFD97706)
                   else -> Color(0xFF16A34A)
                 }
+              val isHigh = v >= 128
               Box(
                 contentAlignment = Alignment.Center,
-                modifier = Modifier.weight(1f).fillMaxSize().clip(RoundedCornerShape(10.dp)).background(tileColor),
+                modifier =
+                  Modifier
+                    .weight(1f)
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(tileColor)
+                    .border(
+                      width = if (isHigh) 1.5.dp else 1.dp,
+                      color = if (isHigh) Color.White.copy(alpha = 0.45f) else if (v > 0) Color.White.copy(alpha = 0.14f) else Color.Transparent,
+                      shape = RoundedCornerShape(10.dp),
+                    ),
               ) {
                 if (v > 0) {
+                  Canvas(modifier = Modifier.fillMaxSize()) {
+                    drawRoundRect(
+                      color = Color.White.copy(alpha = 0.18f),
+                      topLeft = Offset(size.width * 0.08f, size.height * 0.06f),
+                      size = Size(size.width * 0.84f, size.height * 0.16f),
+                      cornerRadius = CornerRadius(6f, 6f),
+                    )
+                    drawRoundRect(
+                      color = Color.Black.copy(alpha = 0.24f),
+                      topLeft = Offset(size.width * 0.04f, size.height * 0.82f),
+                      size = Size(size.width * 0.92f, size.height * 0.14f),
+                      cornerRadius = CornerRadius(6f, 6f),
+                    )
+                  }
                   Text(
                     text = "$v",
                     color = Color.White,
@@ -232,21 +295,24 @@ private data class PipeCell(val mask: Int, val isSource: Boolean = false, val is
 fun FluxCircuitGame(
   onAwardXp: (Int, Int?, String?) -> Unit,
   modifier: Modifier = Modifier,
+  savedStateJson: String? = null,
+  onRegisterQuickResumeProvider: ((() -> Pair<String, String>?) -> Unit) = {},
 ) {
   // Bitmask: 1=Up, 2=Right, 4=Down, 8=Left
   fun rotateMask(m: Int): Int = ((m shl 1) or (m ushr 3)) and 0xF
 
+  val baseTemplate = remember {
+    listOf(
+      PipeCell(2 or 4, isSource = true), PipeCell(2 or 8), PipeCell(4 or 8), PipeCell(2 or 4), PipeCell(4 or 8, isSink = true),
+      PipeCell(1 or 4), PipeCell(1 or 2), PipeCell(1 or 2 or 8), PipeCell(1 or 8), PipeCell(1 or 4),
+      PipeCell(1 or 2), PipeCell(2 or 4 or 8), PipeCell(2 or 8), PipeCell(4 or 8), PipeCell(1 or 4),
+      PipeCell(1 or 4), PipeCell(1 or 4), PipeCell(2 or 4), PipeCell(1 or 2 or 8), PipeCell(1 or 8),
+      PipeCell(1 or 2), PipeCell(1 or 8), PipeCell(1 or 2), PipeCell(2 or 8), PipeCell(1 or 8, isSink = true),
+    )
+  }
+
   fun buildLevel(level: Int): List<PipeCell> {
-    // 5x5 guaranteed connected path from (0,0) to (4,4) and (0,4)
-    val base =
-      listOf(
-        PipeCell(2 or 4, isSource = true), PipeCell(2 or 8), PipeCell(4 or 8), PipeCell(2 or 4), PipeCell(4 or 8, isSink = true),
-        PipeCell(1 or 4), PipeCell(1 or 2), PipeCell(1 or 2 or 8), PipeCell(1 or 8), PipeCell(1 or 4),
-        PipeCell(1 or 2), PipeCell(2 or 4 or 8), PipeCell(2 or 8), PipeCell(4 or 8), PipeCell(1 or 4),
-        PipeCell(1 or 4), PipeCell(1 or 4), PipeCell(2 or 4), PipeCell(1 or 2 or 8), PipeCell(1 or 8),
-        PipeCell(1 or 2), PipeCell(1 or 8), PipeCell(1 or 2), PipeCell(2 or 8), PipeCell(1 or 8, isSink = true),
-      )
-    return base.mapIndexed { idx, cell ->
+    return baseTemplate.mapIndexed { idx, cell ->
       val twists = (idx + level * 2) % 3 + 1
       var m = cell.mask
       if (!cell.isSource) repeat(twists) { m = rotateMask(m) }
@@ -254,10 +320,49 @@ fun FluxCircuitGame(
     }
   }
 
-  var level by remember { mutableIntStateOf(1) }
-  var grid by remember(level) { mutableStateOf(buildLevel(level)) }
-  var moves by remember(level) { mutableIntStateOf(0) }
-  var won by remember(level) { mutableStateOf(false) }
+  val initialSnapshot = remember(savedStateJson) {
+    if (savedStateJson.isNullOrBlank()) null
+    else runCatching {
+      val obj = JSONObject(savedStateJson)
+      val masks = QuickResumeSerializer.decodeIntArray(obj.optJSONArray("masks")) ?: return@runCatching null
+      if (masks.size != 25) return@runCatching null
+      val restoredGrid = baseTemplate.mapIndexed { idx, c -> c.copy(mask = masks[idx]) }
+      Triple(obj.optInt("level", 1).coerceAtLeast(1), obj.optInt("moves", 0), restoredGrid)
+    }.getOrNull()
+  }
+
+  var level by remember(savedStateJson) { mutableIntStateOf(initialSnapshot?.first ?: 1) }
+  var grid by remember(savedStateJson) { mutableStateOf(initialSnapshot?.third ?: buildLevel(1)) }
+  var moves by remember(savedStateJson) { mutableIntStateOf(initialSnapshot?.second ?: 0) }
+  var won by remember(savedStateJson) { mutableStateOf(false) }
+
+  fun startStage(nextLevel: Int) {
+    level = nextLevel
+    grid = buildLevel(nextLevel)
+    moves = 0
+    won = false
+  }
+
+  val latestLevel by rememberUpdatedState(level)
+  val latestGrid by rememberUpdatedState(grid)
+  val latestMoves by rememberUpdatedState(moves)
+  val latestWon by rememberUpdatedState(won)
+
+  DisposableEffect(onRegisterQuickResumeProvider) {
+    onRegisterQuickResumeProvider {
+      if (latestWon || (latestLevel == 1 && latestMoves == 0)) null
+      else {
+        val masks = IntArray(25) { i -> latestGrid[i].mask }
+        val obj = JSONObject().apply {
+          put("level", latestLevel)
+          put("moves", latestMoves)
+          put("masks", QuickResumeSerializer.encodeIntArray(masks))
+        }
+        "Stage $latestLevel · $latestMoves moves" to obj.toString()
+      }
+    }
+    onDispose {}
+  }
 
   fun computePowered(cells: List<PipeCell>): Set<Int> {
     val visited = mutableSetOf(0)
@@ -321,7 +426,12 @@ fun FluxCircuitGame(
                     .weight(1f)
                     .fillMaxSize()
                     .clip(RoundedCornerShape(8.dp))
-                    .background(Color(0xFF171E29))
+                    .background(if (lit) Color(0xFF132836) else Color(0xFF171E29))
+                    .border(
+                      width = if (lit) 1.dp else 0.5.dp,
+                      color = if (lit) Color(0x444CE8C8) else Color(0x2294A3B8),
+                      shape = RoundedCornerShape(8.dp),
+                    )
                     .clickable(enabled = !won) {
                       val updated = grid.toMutableList()
                       updated[idx] = cell.copy(mask = rotateMask(cell.mask))
@@ -342,16 +452,35 @@ fun FluxCircuitGame(
                 Canvas(modifier = Modifier.fillMaxSize()) {
                   val cx = size.width / 2f
                   val cy = size.height / 2f
+                  // Subtle PCB trace grid crosshair
+                  drawLine(Color(0x1494A3B8), Offset(cx, 2f), Offset(cx, size.height - 2f), 1.5f)
+                  drawLine(Color(0x1494A3B8), Offset(2f, cy), Offset(size.width - 2f, cy), 1.5f)
+
                   val pipeCol = if (lit) Color(0xFF4CE8C8) else Color(0xFF475569)
+                  val glowCol = Color(0x444CE8C8)
                   val m = cell.mask
+                  if (lit) {
+                    if ((m and 1) != 0) drawLine(glowCol, Offset(cx, cy), Offset(cx, 0f), 18f, StrokeCap.Round)
+                    if ((m and 2) != 0) drawLine(glowCol, Offset(cx, cy), Offset(size.width, cy), 18f, StrokeCap.Round)
+                    if ((m and 4) != 0) drawLine(glowCol, Offset(cx, cy), Offset(cx, size.height), 18f, StrokeCap.Round)
+                    if ((m and 8) != 0) drawLine(glowCol, Offset(cx, cy), Offset(0f, cy), 18f, StrokeCap.Round)
+                  }
                   if ((m and 1) != 0) drawLine(pipeCol, Offset(cx, cy), Offset(cx, 0f), 10f, StrokeCap.Round)
                   if ((m and 2) != 0) drawLine(pipeCol, Offset(cx, cy), Offset(size.width, cy), 10f, StrokeCap.Round)
                   if ((m and 4) != 0) drawLine(pipeCol, Offset(cx, cy), Offset(cx, size.height), 10f, StrokeCap.Round)
                   if ((m and 8) != 0) drawLine(pipeCol, Offset(cx, cy), Offset(0f, cy), 10f, StrokeCap.Round)
-                  drawCircle(if (cell.isSource) Color(0xFFFFC857) else if (cell.isSink) Color(0xFF38BDF8) else pipeCol, 10f, Offset(cx, cy))
+
+                  if (cell.isSource || cell.isSink) {
+                    val termCol = if (cell.isSource) Color(0xFFFFC857) else Color(0xFF38BDF8)
+                    drawCircle(termCol.copy(alpha = 0.25f), 17f, Offset(cx, cy))
+                    drawCircle(termCol, 12f, Offset(cx, cy))
+                    drawCircle(Color.White.copy(alpha = 0.45f), 12f, Offset(cx, cy), style = Stroke(2f))
+                  } else {
+                    drawCircle(if (lit) Color(0xFFBDFDF0) else Color(0xFF64748B), 7f, Offset(cx, cy))
+                  }
                 }
-                if (cell.isSource) Text("S", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                if (cell.isSink) Text("T", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                if (cell.isSource) Text("S", color = Color(0xFF0B1018), fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
+                if (cell.isSink) Text("T", color = Color(0xFF0B1018), fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
               }
             }
           }
@@ -360,7 +489,7 @@ fun FluxCircuitGame(
     }
 
     if (won) {
-      Button(onClick = { level++ }) { Text("Circuit Powered! Next Stage") }
+      Button(onClick = { startStage(level + 1) }) { Text("Circuit Powered! Next Stage") }
     }
   }
 }
@@ -370,17 +499,55 @@ fun FluxCircuitGame(
 fun VaultSweeperGame(
   onAwardXp: (Int, Int?, String?) -> Unit,
   modifier: Modifier = Modifier,
+  savedStateJson: String? = null,
+  onRegisterQuickResumeProvider: ((() -> Pair<String, String>?) -> Unit) = {},
 ) {
   val sizeN = 8
   val mineCount = 10
 
-  var mines by remember { mutableStateOf(BooleanArray(sizeN * sizeN)) }
-  var revealed by remember { mutableStateOf(BooleanArray(sizeN * sizeN)) }
-  var flagged by remember { mutableStateOf(BooleanArray(sizeN * sizeN)) }
-  var initialized by remember { mutableStateOf(false) }
-  var flagMode by remember { mutableStateOf(false) }
+  val initialSnapshot = remember(savedStateJson) {
+    if (savedStateJson.isNullOrBlank()) null
+    else runCatching {
+      val obj = JSONObject(savedStateJson)
+      val m = QuickResumeSerializer.decodeBooleanArray(obj.optJSONArray("mines")) ?: return@runCatching null
+      val rev = QuickResumeSerializer.decodeBooleanArray(obj.optJSONArray("rev")) ?: return@runCatching null
+      val flg = QuickResumeSerializer.decodeBooleanArray(obj.optJSONArray("flag")) ?: return@runCatching null
+      if (m.size != 64 || rev.size != 64 || flg.size != 64) return@runCatching null
+      Triple(m, rev, flg to obj.optBoolean("flagMode", false))
+    }.getOrNull()
+  }
+
+  var mines by remember(savedStateJson) { mutableStateOf(initialSnapshot?.first ?: BooleanArray(sizeN * sizeN)) }
+  var revealed by remember(savedStateJson) { mutableStateOf(initialSnapshot?.second ?: BooleanArray(sizeN * sizeN)) }
+  var flagged by remember(savedStateJson) { mutableStateOf(initialSnapshot?.third?.first ?: BooleanArray(sizeN * sizeN)) }
+  var initialized by remember(savedStateJson) { mutableStateOf(initialSnapshot != null) }
+  var flagMode by remember(savedStateJson) { mutableStateOf(initialSnapshot?.third?.second ?: false) }
   var lost by remember { mutableStateOf(false) }
   var won by remember { mutableStateOf(false) }
+
+  val latestMines by rememberUpdatedState(mines)
+  val latestRevealed by rememberUpdatedState(revealed)
+  val latestFlagged by rememberUpdatedState(flagged)
+  val latestInit by rememberUpdatedState(initialized)
+  val latestFlagMode by rememberUpdatedState(flagMode)
+  val latestLost by rememberUpdatedState(lost)
+  val latestWon by rememberUpdatedState(won)
+
+  DisposableEffect(onRegisterQuickResumeProvider) {
+    onRegisterQuickResumeProvider {
+      if (!latestInit || latestLost || latestWon) null
+      else {
+        val obj = JSONObject().apply {
+          put("mines", QuickResumeSerializer.encodeBooleanArray(latestMines))
+          put("rev", QuickResumeSerializer.encodeBooleanArray(latestRevealed))
+          put("flag", QuickResumeSerializer.encodeBooleanArray(latestFlagged))
+          put("flagMode", latestFlagMode)
+        }
+        "8×8 · ${latestRevealed.count { it }} cleared" to obj.toString()
+      }
+    }
+    onDispose {}
+  }
 
   fun countAdj(m: BooleanArray, idx: Int): Int {
     val r = idx / sizeN
@@ -460,6 +627,13 @@ fun VaultSweeperGame(
                   isFlag -> Color(0xFFD97706)
                   else -> Color(0xFF283244)
                 }
+              val numColor =
+                when (adj) {
+                  1 -> Color(0xFF38BDF8)
+                  2 -> Color(0xFF4ADE80)
+                  3 -> Color(0xFFFACC15)
+                  else -> Color(0xFFFF7A95)
+                }
               Box(
                 contentAlignment = Alignment.Center,
                 modifier =
@@ -468,6 +642,11 @@ fun VaultSweeperGame(
                     .fillMaxSize()
                     .clip(RoundedCornerShape(5.dp))
                     .background(bg)
+                    .border(
+                      width = 1.dp,
+                      color = if (!isRev) Color(0x33FFFFFF) else Color(0x1894A3B8),
+                      shape = RoundedCornerShape(5.dp),
+                    )
                     .clickable(enabled = !lost && !won) {
                       if (flagMode && !isRev) {
                         val f = flagged.copyOf()
@@ -505,10 +684,28 @@ fun VaultSweeperGame(
                       }
                     },
               ) {
+                if (!isRev) {
+                  Canvas(modifier = Modifier.fillMaxSize()) {
+                    drawRect(Color(0x28FFFFFF), Offset.Zero, Size(size.width, size.height * 0.16f))
+                    drawRect(Color(0x30000000), Offset(0f, size.height * 0.84f), Size(size.width, size.height * 0.16f))
+                  }
+                }
                 when {
-                  lost && isMine -> Text("*", color = Color.White, fontWeight = FontWeight.Bold)
-                  isFlag && !isRev -> Icon(Icons.Rounded.Flag, null, tint = Color.White, modifier = Modifier.size(14.dp))
-                  isRev && adj > 0 -> Text("$adj", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                  lost && isMine -> {
+                    // Vector Naval Spike Mine
+                    Canvas(modifier = Modifier.fillMaxSize(0.72f)) {
+                      val cx = size.width / 2f; val cy = size.height / 2f
+                      val r = size.minDimension * 0.30f
+                      drawLine(Color(0xFF0F172A), Offset(cx - r * 1.45f, cy), Offset(cx + r * 1.45f, cy), 3.2f, StrokeCap.Round)
+                      drawLine(Color(0xFF0F172A), Offset(cx, cy - r * 1.45f), Offset(cx, cy + r * 1.45f), 3.2f, StrokeCap.Round)
+                      drawLine(Color(0xFF0F172A), Offset(cx - r, cy - r), Offset(cx + r, cy + r), 2.8f, StrokeCap.Round)
+                      drawLine(Color(0xFF0F172A), Offset(cx + r, cy - r), Offset(cx - r, cy + r), 2.8f, StrokeCap.Round)
+                      drawCircle(Color(0xFF0F172A), r, Offset(cx, cy))
+                      drawCircle(Color(0xCCFFFFFF), r * 0.3f, Offset(cx - r * 0.32f, cy - r * 0.32f))
+                    }
+                  }
+                  isFlag && !isRev -> Icon(Icons.Rounded.Flag, null, tint = Color.White, modifier = Modifier.size(15.dp))
+                  isRev && adj > 0 -> Text("$adj", fontWeight = FontWeight.ExtraBold, fontSize = 14.sp, color = numColor)
                 }
               }
             }
@@ -527,9 +724,9 @@ fun VaultSweeperGame(
 fun LumenToggleGame(
   onAwardXp: (Int, Int?, String?) -> Unit,
   modifier: Modifier = Modifier,
+  savedStateJson: String? = null,
+  onRegisterQuickResumeProvider: ((() -> Pair<String, String>?) -> Unit) = {},
 ) {
-  var gridN by remember { mutableIntStateOf(4) }
-
   fun makeSolvable(n: Int): BooleanArray {
     val arr = BooleanArray(n * n)
     repeat(n + 3) {
@@ -544,9 +741,48 @@ fun LumenToggleGame(
     return arr
   }
 
-  var board by remember(gridN) { mutableStateOf(makeSolvable(gridN)) }
-  var moves by remember(gridN) { mutableIntStateOf(0) }
-  var solved by remember(gridN) { mutableStateOf(false) }
+  val initialSnapshot = remember(savedStateJson) {
+    if (savedStateJson.isNullOrBlank()) null
+    else runCatching {
+      val obj = JSONObject(savedStateJson)
+      val n = obj.optInt("n", 4).let { if (it == 5) 5 else 4 }
+      val arr = QuickResumeSerializer.decodeBooleanArray(obj.optJSONArray("board")) ?: return@runCatching null
+      if (arr.size != n * n) return@runCatching null
+      Triple(n, arr, obj.optInt("moves", 0))
+    }.getOrNull()
+  }
+
+  var gridN by remember(savedStateJson) { mutableIntStateOf(initialSnapshot?.first ?: 4) }
+  var board by remember(savedStateJson) { mutableStateOf(initialSnapshot?.second ?: makeSolvable(gridN)) }
+  var moves by remember(savedStateJson) { mutableIntStateOf(initialSnapshot?.third ?: 0) }
+  var solved by remember { mutableStateOf(false) }
+
+  fun startBoard(n: Int) {
+    gridN = n
+    board = makeSolvable(n)
+    moves = 0
+    solved = false
+  }
+
+  val latestN by rememberUpdatedState(gridN)
+  val latestBoard by rememberUpdatedState(board)
+  val latestMoves by rememberUpdatedState(moves)
+  val latestSolved by rememberUpdatedState(solved)
+
+  DisposableEffect(onRegisterQuickResumeProvider) {
+    onRegisterQuickResumeProvider {
+      if (latestSolved || latestMoves <= 0) null
+      else {
+        val obj = JSONObject().apply {
+          put("n", latestN)
+          put("moves", latestMoves)
+          put("board", QuickResumeSerializer.encodeBooleanArray(latestBoard))
+        }
+        "${latestN}×${latestN} · $latestMoves moves" to obj.toString()
+      }
+    }
+    onDispose {}
+  }
 
   Column(
     modifier = modifier.fillMaxSize().padding(16.dp),
@@ -554,11 +790,11 @@ fun LumenToggleGame(
     verticalArrangement = Arrangement.spacedBy(14.dp),
   ) {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-      FilterChip(selected = gridN == 4, onClick = { gridN = 4 }, label = { Text("4×4") })
-      FilterChip(selected = gridN == 5, onClick = { gridN = 5 }, label = { Text("5×5") })
+      FilterChip(selected = gridN == 4, onClick = { startBoard(4) }, label = { Text("4×4") })
+      FilterChip(selected = gridN == 5, onClick = { startBoard(5) }, label = { Text("5×5") })
       Spacer(Modifier.weight(1f))
       Text("MOVES $moves", style = MaterialTheme.typography.labelLarge)
-      OutlinedButton(onClick = { board = makeSolvable(gridN); moves = 0; solved = false }) { Text("New") }
+      OutlinedButton(onClick = { startBoard(gridN) }) { Text("New") }
     }
 
     Text("Turn off every glowing node. Each tap flips the cross around it.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -580,8 +816,12 @@ fun LumenToggleGame(
                     .weight(1f)
                     .fillMaxSize()
                     .clip(RoundedCornerShape(12.dp))
-                    .background(if (lit) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface)
-                    .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(12.dp))
+                    .background(if (lit) Color(0xFF0E3436) else Color(0xFF131924))
+                    .border(
+                      width = if (lit) 1.5.dp else 1.dp,
+                      color = if (lit) Color(0xFF4CE8C8) else Color(0xFF283446),
+                      shape = RoundedCornerShape(12.dp),
+                    )
                     .clickable(enabled = !solved) {
                       val next = board.copyOf()
                       listOf(0 to 0, -1 to 0, 1 to 0, 0 to -1, 0 to 1).forEach { (dr, dc) ->
@@ -602,7 +842,30 @@ fun LumenToggleGame(
                         VaultAudioEngine.playGameSfx(GameSfx.PUZZLE_STEP)
                       }
                     },
-              )
+              ) {
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                  val cx = size.width / 2f; val cy = size.height / 2f
+                  val r = size.minDimension * 0.34f
+                  if (lit) {
+                    drawCircle(
+                      brush = Brush.radialGradient(
+                        listOf(Color(0x994CE8C8), Color(0x224CE8C8), Color.Transparent),
+                        center = Offset(cx, cy),
+                        radius = size.minDimension * 0.52f,
+                      ),
+                      radius = size.minDimension * 0.52f,
+                      center = Offset(cx, cy),
+                    )
+                    drawCircle(Color(0xFF4CE8C8), r, Offset(cx, cy))
+                    drawCircle(Color(0xFFE0FFF9), r * 0.55f, Offset(cx, cy))
+                    drawCircle(Color.White, r * 0.22f, Offset(cx - r * 0.32f, cy - r * 0.32f))
+                  } else {
+                    drawCircle(Color(0xFF1F2A3A), r * 0.85f, Offset(cx, cy))
+                    drawCircle(Color(0xFF334155), r * 0.85f, Offset(cx, cy), style = Stroke(2f))
+                    drawCircle(Color(0xFF283548), r * 0.28f, Offset(cx, cy))
+                  }
+                }
+              }
             }
           }
         }

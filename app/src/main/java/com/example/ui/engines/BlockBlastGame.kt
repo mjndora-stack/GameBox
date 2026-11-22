@@ -32,6 +32,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -61,6 +62,8 @@ import com.example.audio.VaultAudioEngine
 import kotlin.math.roundToInt
 import kotlin.random.Random
 import kotlinx.coroutines.launch
+import org.json.JSONArray
+import org.json.JSONObject
 
 data class BlockShape(
   val id: String,
@@ -214,22 +217,67 @@ object BlockBlastLogic {
   }
 }
 
+private data class SavedBlockBlastSnapshot(
+  val grid: List<List<Long>>,
+  val tray: List<BlockShape?>,
+  val score: Int,
+  val bestScore: Int,
+  val linesTotal: Int,
+  val comboStreak: Int,
+  val endlessZenMode: Boolean,
+)
+
+private fun parseBlockBlastSnapshot(json: String?): SavedBlockBlastSnapshot? {
+  if (json.isNullOrBlank()) return null
+  return runCatching {
+    val obj = JSONObject(json)
+    val gridArr = obj.getJSONArray("grid")
+    if (gridArr.length() != BlockBlastLogic.GRID_SIZE) return null
+    val parsedGrid = List(BlockBlastLogic.GRID_SIZE) { r ->
+      val rowArr = gridArr.getJSONArray(r)
+      List(BlockBlastLogic.GRID_SIZE) { c -> rowArr.optLong(c, 0L) }
+    }
+    val trayArr = obj.getJSONArray("tray")
+    val parsedTray = (0 until trayArr.length()).map { i ->
+      val id = trayArr.optString(i, "")
+      if (id.isEmpty()) null else BLOCK_SHAPES.firstOrNull { it.id == id }
+    }
+    SavedBlockBlastSnapshot(
+      grid = parsedGrid,
+      tray = if (parsedTray.size == 3 && parsedTray.any { it != null }) parsedTray else BlockBlastLogic.dealHand(parsedGrid),
+      score = obj.optInt("score", 0),
+      bestScore = obj.optInt("best", 0),
+      linesTotal = obj.optInt("lines", 0),
+      comboStreak = obj.optInt("combo", 0),
+      endlessZenMode = obj.optBoolean("zen", false),
+    )
+  }.getOrNull()
+}
+
 @Composable
 fun BlockBlastGame(
   initialBestScore: Int = 0,
   onAwardXp: (Int, Int?, String?) -> Unit,
   modifier: Modifier = Modifier,
+  savedStateJson: String? = null,
+  onRegisterQuickResumeProvider: ((() -> Pair<String, String>?) -> Unit) = {},
 ) {
-  var grid by remember { mutableStateOf(BlockBlastLogic.emptyGrid()) }
-  var tray by remember { mutableStateOf<List<BlockShape?>>(BlockBlastLogic.dealHand(grid)) }
-  var selectedSlot by remember { mutableStateOf<Int?>(0) }
-  var score by remember { mutableIntStateOf(0) }
-  var bestScore by remember { mutableIntStateOf(initialBestScore) }
-  var linesTotal by remember { mutableIntStateOf(0) }
-  var comboStreak by remember { mutableIntStateOf(0) }
-  var endlessZenMode by remember { mutableStateOf(false) }
+  val initialSnapshot = remember(savedStateJson) { parseBlockBlastSnapshot(savedStateJson) }
+  var grid by remember(savedStateJson) { mutableStateOf(initialSnapshot?.grid ?: BlockBlastLogic.emptyGrid()) }
+  var tray by remember(savedStateJson) { mutableStateOf<List<BlockShape?>>(initialSnapshot?.tray ?: BlockBlastLogic.dealHand(grid)) }
+  var selectedSlot by remember(savedStateJson) { mutableStateOf<Int?>(tray.indexOfFirst { it != null }.takeIf { it >= 0 }) }
+  var score by remember(savedStateJson) { mutableIntStateOf(initialSnapshot?.score ?: 0) }
+  var bestScore by remember(savedStateJson) { mutableIntStateOf(maxOf(initialBestScore, initialSnapshot?.bestScore ?: 0)) }
+  var linesTotal by remember(savedStateJson) { mutableIntStateOf(initialSnapshot?.linesTotal ?: 0) }
+  var comboStreak by remember(savedStateJson) { mutableIntStateOf(initialSnapshot?.comboStreak ?: 0) }
+  var endlessZenMode by remember(savedStateJson) { mutableStateOf(initialSnapshot?.endlessZenMode ?: false) }
   var isGameOver by remember { mutableStateOf(false) }
-  var statusBanner by remember { mutableStateOf("Place blocks to clear full rows or columns!") }
+  var statusBanner by remember(savedStateJson) {
+    mutableStateOf(
+      if (initialSnapshot != null) "Resumed at ${initialSnapshot.score} pts (${initialSnapshot.linesTotal} lines)!"
+      else "Place blocks to clear full rows or columns!"
+    )
+  }
   var achievementUnlocked by remember { mutableStateOf(false) }
 
   // Dragging & preview coordinates in root space
@@ -247,9 +295,44 @@ fun BlockBlastGame(
   val scope = rememberCoroutineScope()
   val currentGrid by rememberUpdatedState(grid)
   val currentTray by rememberUpdatedState(tray)
+  val currentScore by rememberUpdatedState(score)
+  val currentBest by rememberUpdatedState(bestScore)
+  val currentLines by rememberUpdatedState(linesTotal)
+  val currentCombo by rememberUpdatedState(comboStreak)
+  val currentZen by rememberUpdatedState(endlessZenMode)
+  val currentGameOver by rememberUpdatedState(isGameOver)
 
   LaunchedEffect(initialBestScore) {
     if (initialBestScore > bestScore) bestScore = initialBestScore
+  }
+
+  DisposableEffect(onRegisterQuickResumeProvider) {
+    onRegisterQuickResumeProvider {
+      val hasProgress = currentScore > 0 || currentGrid.any { row -> row.any { it != 0L } }
+      if (currentGameOver || !hasProgress) {
+        null
+      } else {
+        val obj = JSONObject().apply {
+          val gridArr = JSONArray()
+          currentGrid.forEach { row ->
+            val rowArr = JSONArray()
+            row.forEach { cell -> rowArr.put(cell) }
+            gridArr.put(rowArr)
+          }
+          put("grid", gridArr)
+          val trayArr = JSONArray()
+          currentTray.forEach { shape -> trayArr.put(shape?.id ?: "") }
+          put("tray", trayArr)
+          put("score", currentScore)
+          put("best", currentBest)
+          put("lines", currentLines)
+          put("combo", currentCombo)
+          put("zen", currentZen)
+        }
+        "Score $currentScore · $currentLines lines" to obj.toString()
+      }
+    }
+    onDispose {}
   }
 
   fun resetRun() {
@@ -549,20 +632,28 @@ fun BlockBlastGame(
                   }
                   filledHex != 0L -> {
                     val col = Color(filledHex)
+                    drawRoundRect(Color.Black.copy(alpha = 0.35f), Offset(x, y + 2.5f), blockSize, corner)
                     drawRoundRect(col, Offset(x, y), blockSize, corner)
+                    // Glossy top specular catchlight & lower bevel shadow
                     drawRoundRect(
-                      Color.White.copy(alpha = 0.25f),
-                      Offset(x + 2f, y + 2f),
-                      Size(blockSize.width - 4f, blockSize.height * 0.28f),
+                      Color.White.copy(alpha = 0.34f),
+                      Offset(x + 2.5f, y + 2f),
+                      Size((blockSize.width - 5f).coerceAtLeast(1f), (blockSize.height * 0.26f).coerceAtLeast(1f)),
+                      corner,
+                    )
+                    drawRoundRect(
+                      Color.Black.copy(alpha = 0.22f),
+                      Offset(x + 2f, y + blockSize.height * 0.74f),
+                      Size((blockSize.width - 4f).coerceAtLeast(1f), (blockSize.height * 0.22f).coerceAtLeast(1f)),
                       corner,
                     )
                     if (isWillClear) {
-                      drawRoundRect(Color.White.copy(alpha = 0.65f), Offset(x, y), blockSize, corner, style = Stroke(3f))
+                      drawRoundRect(Color.White.copy(alpha = 0.78f), Offset(x, y), blockSize, corner, style = Stroke(3.2f))
                     }
                   }
                   else -> {
                     drawRoundRect(
-                      color = if ((r + c) % 2 == 0) Color(0xFF172030) else Color(0xFF141C2B),
+                      color = if ((r + c) % 2 == 0) Color(0xFF172030) else Color(0xFF131B29),
                       topLeft = Offset(x, y),
                       size = blockSize,
                       cornerRadius = corner,
@@ -689,11 +780,33 @@ fun BlockBlastGame(
         val gap = cSize * 0.08f
         val col = Color(activeDragShape.colorHex)
         activeDragShape.cells.forEach { (dr, dc) ->
+          val bx = dc * cSize + gap * 0.5f
+          val by = dr * cSize + gap * 0.5f
+          val bw = cSize - gap
+          val cr = CornerRadius(cSize * 0.16f)
           drawRoundRect(
-            col.copy(alpha = 0.9f),
-            Offset(dc * cSize + gap * 0.5f, dr * cSize + gap * 0.5f),
-            Size(cSize - gap, cSize - gap),
-            CornerRadius(cSize * 0.16f),
+            Color(0x55000000),
+            Offset(bx + 2f, by + 4f),
+            Size(bw, bw),
+            cr,
+          )
+          drawRoundRect(
+            col.copy(alpha = 0.92f),
+            Offset(bx, by),
+            Size(bw, bw),
+            cr,
+          )
+          drawRoundRect(
+            Color(0x55FFFFFF),
+            Offset(bx + bw * 0.10f, by + bw * 0.08f),
+            Size(bw * 0.80f, bw * 0.22f),
+            CornerRadius(cSize * 0.08f),
+          )
+          drawRoundRect(
+            Color(0x38000000),
+            Offset(bx + bw * 0.06f, by + bw * 0.78f),
+            Size(bw * 0.88f, bw * 0.16f),
+            CornerRadius(cSize * 0.08f),
           )
         }
       }
@@ -769,12 +882,36 @@ private fun ShapePreviewCanvas(
     val oy = (size.height - totalH) * 0.5f
     val gap = cell * 0.10f
     val color = Color(shape.colorHex).copy(alpha = if (dimmed) 0.35f else 1f)
+    val bw = cell - gap
+    val cr = CornerRadius(cell * 0.2f)
     shape.cells.forEach { (dr, dc) ->
+      val bx = ox + dc * cell + gap * 0.5f
+      val by = oy + dr * cell + gap * 0.5f
+      if (!dimmed) {
+        drawRoundRect(
+          color = Color(0x44000000),
+          topLeft = Offset(bx, by + cell * 0.06f),
+          size = Size(bw, bw),
+          cornerRadius = cr,
+        )
+      }
       drawRoundRect(
         color = color,
-        topLeft = Offset(ox + dc * cell + gap * 0.5f, oy + dr * cell + gap * 0.5f),
-        size = Size(cell - gap, cell - gap),
-        cornerRadius = CornerRadius(cell * 0.2f),
+        topLeft = Offset(bx, by),
+        size = Size(bw, bw),
+        cornerRadius = cr,
+      )
+      drawRoundRect(
+        color = Color.White.copy(alpha = if (dimmed) 0.10f else 0.32f),
+        topLeft = Offset(bx + bw * 0.10f, by + bw * 0.08f),
+        size = Size(bw * 0.80f, bw * 0.20f),
+        cornerRadius = CornerRadius(cell * 0.08f),
+      )
+      drawRoundRect(
+        color = Color.Black.copy(alpha = if (dimmed) 0.10f else 0.22f),
+        topLeft = Offset(bx + bw * 0.06f, by + bw * 0.78f),
+        size = Size(bw * 0.88f, bw * 0.16f),
+        cornerRadius = CornerRadius(cell * 0.08f),
       )
     }
   }

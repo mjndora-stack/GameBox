@@ -82,6 +82,42 @@
     } catch (_) {}
   }
 
+  let hasResumableRun = false;
+  let quickResumePending = false;
+  let resumeSaveAccum = 0;
+
+  function pushQuickResume(force) {
+    if ((!hasResumableRun && !force) || !runner) return;
+    try {
+      if (window.VaultBridge && window.VaultBridge.saveQuickResume) {
+        const curScore = Math.floor(distance) + credits * 25;
+        const snap = {
+          speed,
+          distance,
+          credits,
+          lastSubmittedMilestone,
+          nextVictoryDist,
+          runner,
+          roofs,
+          coins,
+          drones
+        };
+        const label = `${Math.floor(distance)}m · Score ${curScore}`;
+        window.VaultBridge.saveQuickResume('skyline_dash', label, JSON.stringify(snap));
+      }
+    } catch (_) {}
+  }
+
+  function clearQuickResumeBridge() {
+    hasResumableRun = false;
+    quickResumePending = false;
+    try {
+      if (window.VaultBridge && window.VaultBridge.clearQuickResume) {
+        window.VaultBridge.clearQuickResume('skyline_dash');
+      }
+    } catch (_) {}
+  }
+
   function reset() {
     speed = 290;
     distance = 0;
@@ -138,6 +174,7 @@
 
   function endRun() {
     running = false;
+    clearQuickResumeBridge();
     const finalScore = Math.floor(distance) + credits * 25;
     const earnedXp = Math.max(15, Math.floor(finalScore / 20));
     playSfx(finalScore >= 600 ? 'VICTORY' : 'HIT');
@@ -153,7 +190,14 @@
     const dt = Math.min((now - last) / 1000, 0.035);
     last = now;
     globalTime += dt;
-    if (running) update(dt);
+    if (running) {
+      update(dt);
+      resumeSaveAccum += dt;
+      if (resumeSaveAccum >= 0.85) {
+        resumeSaveAccum = 0;
+        pushQuickResume(false);
+      }
+    }
     render();
     requestAnimationFrame(loop);
   }
@@ -268,40 +312,62 @@
     const cx = x + 14;
     const by = y + 40;
 
-    // Billowing Runner Scarf
+    // Billowing Runner Scarf with outline
     const wave = Math.sin(globalTime * 18) * 4;
-    ctx.strokeStyle = dashing ? '#FF6B8B' : '#FFB347';
-    ctx.lineWidth = 4;
+    ctx.strokeStyle = dashing ? '#BE185D' : '#B45309';
+    ctx.lineWidth = 6.5;
     ctx.lineCap = 'round';
     ctx.beginPath();
     ctx.moveTo(cx + 2, y + 13);
     ctx.quadraticCurveTo(cx - 12, y + 12 + wave, cx - 26, y + 16 - wave);
     ctx.stroke();
 
-    // Sprinting / Air-Dash Legs
+    ctx.strokeStyle = dashing ? '#FF6B8B' : '#FFB347';
+    ctx.lineWidth = 3.8;
+    ctx.beginPath();
+    ctx.moveTo(cx + 2, y + 13);
+    ctx.quadraticCurveTo(cx - 12, y + 12 + wave, cx - 26, y + 16 - wave);
+    ctx.stroke();
+
+    // Sprinting / Air-Dash Legs + Sneakers
     const legSwing = dashing ? 0.9 : Math.sin(stride);
+    const bFootX = cx - legSwing * 10;
+    const fFootX = cx + (dashing ? 13 : legSwing * 10);
+    const fFootY = dashing ? by - 10 : by - 2;
+
     ctx.strokeStyle = '#9D8CA8';
     ctx.lineWidth = 4.5;
     ctx.beginPath();
     ctx.moveTo(cx, by - 14);
-    ctx.lineTo(cx - legSwing * 10, by - 2);
+    ctx.lineTo(bFootX, by - 2);
     ctx.stroke();
+    ctx.fillStyle = '#475569';
+    ctx.fillRect(bFootX - 2, by - 3.5, 7, 3.5);
 
     ctx.strokeStyle = dashing ? '#FF8AA4' : '#FFF4E6';
     ctx.beginPath();
     ctx.moveTo(cx, by - 14);
-    ctx.lineTo(cx + (dashing ? 13 : legSwing * 10), dashing ? by - 10 : by - 2);
+    ctx.lineTo(fFootX, fFootY);
     ctx.stroke();
+    ctx.fillStyle = dashing ? '#FF6B8B' : '#FFB347';
+    ctx.fillRect(fFootX - 2, fFootY - 2.5, 8, 3.5);
 
-    // Leaning Torso Jacket
+    // Leaning Torso Jacket + Trim Stripe
     ctx.fillStyle = dashing ? '#FF5C7C' : '#FFF4E6';
     ctx.beginPath();
-    ctx.moveTo(cx - 5, by - 27);
-    ctx.lineTo(cx + 9, by - 27);
-    ctx.lineTo(cx + 5, by - 13);
-    ctx.lineTo(cx - 7, by - 13);
+    ctx.moveTo(cx - 5.5, by - 27.5);
+    ctx.lineTo(cx + 9.5, by - 27.5);
+    ctx.lineTo(cx + 5.5, by - 13);
+    ctx.lineTo(cx - 7.5, by - 13);
     ctx.closePath();
     ctx.fill();
+    ctx.strokeStyle = '#19101F';
+    ctx.lineWidth = 1.3;
+    ctx.stroke();
+
+    // High Collar Accent
+    ctx.fillStyle = dashing ? '#FFE4E6' : '#FFB347';
+    ctx.fillRect(cx - 2, by - 27, 9, 2.5);
 
     // Pumping Arm
     ctx.strokeStyle = '#FFB347';
@@ -314,25 +380,27 @@
     // Head + Visor + Hair Spike
     ctx.fillStyle = '#FFF4E6';
     ctx.beginPath();
-    ctx.arc(cx + 5, by - 33, 7.5, 0, Math.PI * 2);
+    ctx.arc(cx + 5, by - 33, 7.8, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = '#FF6B8B';
     ctx.beginPath();
     ctx.moveTo(cx - 2, by - 38);
-    ctx.lineTo(cx - 8, by - 43);
-    ctx.lineTo(cx + 3, by - 39);
+    ctx.lineTo(cx - 9, by - 44);
+    ctx.lineTo(cx + 4, by - 39.5);
     ctx.closePath();
     ctx.fill();
     ctx.fillStyle = '#FFB347';
-    ctx.fillRect(cx + 5, by - 35, 7, 3.5);
+    ctx.fillRect(cx + 5, by - 35.5, 7.5, 4);
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(cx + 8.5, by - 34.8, 3, 1.5);
 
     if (dashing && alpha === 1) {
       // Supersonic Dash Shockwave Cone
-      ctx.strokeStyle = 'rgba(255, 107, 139, 0.75)';
-      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = 'rgba(255, 107, 139, 0.85)';
+      ctx.lineWidth = 2.8;
       ctx.beginPath();
       ctx.moveTo(cx - 6, y);
-      ctx.lineTo(cx + 26, y + 20);
+      ctx.lineTo(cx + 27, y + 20);
       ctx.lineTo(cx - 6, y + 40);
       ctx.stroke();
     }
@@ -346,31 +414,51 @@
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, W, H);
 
-    // Horizon sun
+    // Horizon sun + soft atmospheric bloom
+    const sunGrad = ctx.createRadialGradient(W * 0.72, H * 0.32, 10, W * 0.72, H * 0.32, 95);
+    sunGrad.addColorStop(0, 'rgba(255, 200, 87, 0.42)');
+    sunGrad.addColorStop(1, 'rgba(255, 179, 71, 0)');
+    ctx.fillStyle = sunGrad;
     ctx.beginPath();
-    ctx.arc(W * 0.72, H * 0.32, 54, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(255, 179, 71, 0.22)';
+    ctx.arc(W * 0.72, H * 0.32, 95, 0, Math.PI * 2);
     ctx.fill();
 
-    // Distant Parallax Skyscraper Skyline
-    ctx.fillStyle = 'rgba(18, 12, 28, 0.65)';
+    // Distant Parallax Skyscraper Skyline with lit windows
     const skyShift = -((distance * 3) % 140);
     for (let sx = skyShift; sx < W + 140; sx += 70) {
       const bh = 80 + Math.abs(Math.sin(sx * 0.05)) * 120;
-      ctx.fillRect(sx, H - bh - 40, 56, bh + 40);
+      const by = H - bh - 40;
+      ctx.fillStyle = 'rgba(18, 12, 28, 0.72)';
+      ctx.fillRect(sx, by, 56, bh + 40);
+      ctx.fillStyle = 'rgba(255, 179, 71, 0.16)';
+      for (let wy = by + 12; wy < H - 20; wy += 18) {
+        ctx.fillRect(sx + 10, wy, 10, 6);
+        ctx.fillRect(sx + 34, wy, 10, 6);
+      }
     }
 
-    // Rooftops
+    // Beveled Rooftops with architectural ledge & windows
     for (const r of roofs) {
       ctx.fillStyle = '#0F0B18';
       ctx.fillRect(r.x, r.y, r.w, r.h);
+      ctx.fillStyle = '#1D142C';
+      ctx.fillRect(r.x + 8, r.y + 18, r.w - 16, r.h - 18);
       ctx.fillStyle = '#FFB347';
-      ctx.fillRect(r.x, r.y, r.w, 4);
+      ctx.fillRect(r.x, r.y, r.w, 4.5);
+      ctx.fillStyle = 'rgba(255, 179, 71, 0.18)';
+      for (let wx = r.x + 20; wx < r.x + r.w - 28; wx += 36) {
+        ctx.fillRect(wx, r.y + 26, 16, 10);
+        ctx.fillRect(wx, r.y + 46, 16, 10);
+      }
     }
 
-    // Rotating Holo-Credits
+    // Rotating Holo-Credits with shine
     for (const c of coins) {
       const spin = Math.abs(Math.cos(globalTime * 5 + c.x * 0.02));
+      ctx.fillStyle = 'rgba(255, 209, 102, 0.25)';
+      ctx.beginPath();
+      ctx.arc(c.x, c.y, 13, 0, Math.PI * 2);
+      ctx.fill();
       ctx.fillStyle = '#FFD166';
       ctx.beginPath();
       ctx.ellipse(c.x, c.y, Math.max(3, 9 * spin), 9, 0, 0, Math.PI * 2);
@@ -384,15 +472,13 @@
     for (const d of drones) {
       const bob = Math.sin(globalTime * 9 + d.x) * 3;
       const dy = d.y + bob;
-      // Spinning Rotor Blades
       const rotorW = 14 + Math.sin(globalTime * 40) * 6;
-      ctx.strokeStyle = '#94A3B8';
+      ctx.strokeStyle = '#CBD5E1';
       ctx.lineWidth = 2.5;
       ctx.beginPath();
       ctx.moveTo(d.x - rotorW, dy - 14);
       ctx.lineTo(d.x + rotorW, dy - 14);
       ctx.stroke();
-      // Armored Drone Hull
       ctx.fillStyle = '#334155';
       ctx.beginPath();
       ctx.moveTo(d.x - 16, dy);
@@ -403,10 +489,16 @@
       ctx.lineTo(d.x - 8, dy + 10);
       ctx.closePath();
       ctx.fill();
-      // Glowing Scanner Eye
+      ctx.strokeStyle = '#64748B';
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
       ctx.fillStyle = '#FF5C7C';
       ctx.beginPath();
-      ctx.arc(d.x - 3, dy, 4.5, 0, Math.PI * 2);
+      ctx.arc(d.x - 3, dy, 4.8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#FFE4E6';
+      ctx.beginPath();
+      ctx.arc(d.x - 4.2, dy - 1.2, 1.8, 0, Math.PI * 2);
       ctx.fill();
     }
 
@@ -430,9 +522,45 @@
 
   startBtn.addEventListener('click', () => {
     overlay.style.display = 'none';
+    if (quickResumePending) {
+      quickResumePending = false;
+      running = true;
+      return;
+    }
     reset();
+    hasResumableRun = true;
+    pushQuickResume(true);
     running = true;
   });
+
+  window.VaultRequestQuickResume = () => {
+    if (hasResumableRun) pushQuickResume(true);
+  };
+
+  window.VaultApplyQuickResume = (rawJson) => {
+    try {
+      const snap = JSON.parse(rawJson);
+      speed = snap.speed || 290;
+      distance = snap.distance || 0;
+      credits = snap.credits || 0;
+      lastSubmittedMilestone = snap.lastSubmittedMilestone || 0;
+      nextVictoryDist = snap.nextVictoryDist || 250;
+      if (Array.isArray(snap.roofs) && snap.roofs.length > 0) roofs = snap.roofs;
+      if (Array.isArray(snap.coins)) coins = snap.coins;
+      if (Array.isArray(snap.drones)) drones = snap.drones;
+      if (snap.runner) runner = snap.runner;
+      hasResumableRun = true;
+      quickResumePending = true;
+      updateHud();
+      const s = Math.floor(distance) + credits * 25;
+      overlay.querySelector('h1').textContent = 'QUICK RESUME';
+      overlay.querySelector('p').textContent = `Restored at ${Math.floor(distance)}m · Score ${s} · Speed ${(speed / 290).toFixed(1)}x. Tap below when ready!`;
+      startBtn.textContent = 'RESUME RUN';
+      overlay.style.display = 'flex';
+    } catch (_) {}
+  };
+
+  window.addEventListener('pagehide', () => { if (hasResumableRun) pushQuickResume(true); });
 
   reset();
   requestAnimationFrame(loop);

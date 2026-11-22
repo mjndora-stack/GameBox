@@ -140,4 +140,17 @@ interface VaultDao {
 
   @Query("UPDATE cosmetic_badges SET unlockedAt = :timestamp WHERE id = :id AND unlockedAt IS NULL")
   suspend fun unlockCosmeticBadge(id: String, timestamp: Long): Int
+
+  // Quick Resume Saves
+  @Query("SELECT * FROM game_quick_resumes ORDER BY updatedAt DESC")
+  fun observeQuickResumes(): Flow<List<GameQuickResumeEntity>>
+
+  @Query("SELECT * FROM game_quick_resumes WHERE gameId = :gameId")
+  suspend fun getQuickResumeOnce(gameId: String): GameQuickResumeEntity?
+
+  @Insert(onConflict = OnConflictStrategy.REPLACE)
+  suspend fun upsertQuickResume(entry: GameQuickResumeEntity)
+
+  @Query("DELETE FROM game_quick_resumes WHERE gameId = :gameId")
+  suspend fun deleteQuickResume(gameId: String)
 }
